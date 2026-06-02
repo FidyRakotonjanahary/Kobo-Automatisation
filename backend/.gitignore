@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.db
+kobo_automation.db
+logs/
+.pytest_cache/
+
+# Fichiers secrets Google (NE JAMAIS PARTAGER)
+token.json
+client_secrets.json
+service_account.json
+credentials.json
+token.pickle
+*.pickle

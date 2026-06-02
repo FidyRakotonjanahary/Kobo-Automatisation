@@ -1,0 +1,174 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Inter", sans-serif;
+  --bg-primary: #f7f8fb;
+  --bg-panel: #ffffff;
+  --bg-sidebar: #0d0d10;
+  --text-primary: #111827;
+  --text-secondary: #5f6674;
+  --text-tertiary: #9aa3b2;
+  --border-color: #e5e7eb;
+  --gradient-linear: linear-gradient(135deg, #111827 0%, #4f46e5 52%, #0891b2 100%);
+  --gradient-action: linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0891b2 100%);
+}
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Scrollbar - Minimal */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 10px;
+}
+
+/* Linear-style utilities */
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+.app-shell {
+  @apply flex h-screen w-screen overflow-hidden bg-[#f7f8fb];
+}
+
+.page-shell {
+  @apply w-full max-w-[1400px] mx-auto p-6 lg:p-8 space-y-6 font-sans;
+}
+
+.page-shell-narrow {
+  @apply w-full max-w-6xl mx-auto p-6 lg:p-8 space-y-6 font-sans;
+}
+
+.page-header {
+  @apply flex flex-col gap-3 border-b border-gray-200/80 pb-5 sm:flex-row sm:items-center sm:justify-between;
+}
+
+.page-kicker {
+  @apply text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400;
+}
+
+.page-title {
+  @apply text-[16px] font-semibold tracking-tight text-gray-950;
+}
+
+.page-subtitle {
+  @apply text-[12px] text-gray-500 mt-1 leading-relaxed;
+}
+
+.text-linear-primary {
+  background: var(--gradient-linear);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.surface-panel {
+  @apply bg-white border border-gray-200 rounded-lg shadow-sm;
+}
+
+.surface-panel-soft {
+  @apply bg-gray-50/70 border border-gray-200 rounded-lg;
+}
+
+.section-label {
+  @apply text-[11px] font-bold text-gray-500 uppercase tracking-[0.1em] flex items-center gap-2;
+}
+
+.status-pill {
+  @apply inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none uppercase tracking-tight;
+}
+
+.input-linear {
+  @apply h-9 w-full border border-gray-200 rounded-lg px-3 text-xs outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all bg-white placeholder:text-gray-300 disabled:bg-gray-50 disabled:text-gray-400;
+}
+
+.btn-primary-linear {
+  background: var(--gradient-action);
+  @apply h-9 px-4 text-white text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed;
+}
+
+.btn-secondary-linear {
+  @apply h-8 px-3 border border-gray-200 bg-white text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors flex items-center justify-center gap-1.5;
+}
+
+.btn-icon-linear {
+  @apply h-8 w-8 rounded-lg border border-transparent text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 transition-colors inline-flex items-center justify-center;
+}
+
+.label-linear {
+  @apply text-[11px] font-semibold text-gray-500 mb-1 block;
+}
+
+.table-wrapper {
+  @apply border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm;
+}
+
+.table-header {
+  @apply bg-gray-50 text-[11px] text-gray-500 font-bold px-3.5 py-2.5 border-b border-gray-200 text-left uppercase tracking-[0.04em];
+}
+
+.table-row {
+  @apply border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors;
+}
+
+.table-cell {
+  @apply px-3.5 py-2.5 text-xs;
+}
+
+/* Console Linear Style */
+.console-wrapper {
+  @apply bg-[#050505] border border-black/10 rounded-lg overflow-hidden flex flex-col shadow-xl;
+  height: 540px;
+}
+
+.console-header {
+  @apply bg-white/[0.02] text-[11px] font-black text-white/50 px-5 py-4 border-b border-white/[0.06] flex items-center justify-between uppercase tracking-[0.16em];
+}
+
+.console-content {
+  @apply flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] text-[#e0e0e0];
+}
+
+.custom-scrollbar-dark::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.progress-bar-container {
+  @apply relative w-full h-[2px] bg-white/[0.03] overflow-hidden;
+}
+
+.progress-bar-inner {
+  @apply bg-indigo-500 h-full absolute top-0;
+  animation: indeterminate 1.5s ease-in-out infinite;
+  width: 40%;
+}
+
+.step-locked {
+  @apply opacity-40 pointer-events-none grayscale transition-opacity duration-300;
+}

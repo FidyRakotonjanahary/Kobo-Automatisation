@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.env
+*.db
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm
+.eslintcache
+
+# Google Auth
+token.json
+client_secrets.json
+
+# Logs & Exports
+logs/
+exports/
+temp_media/
+
+# OS
+.DS_Store
+Thumbs.db
+credentials.json
+token.pickle
+*.pickle
