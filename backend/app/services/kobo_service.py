@@ -1,15 +1,18 @@
-import httpx
-import logging
 import io
+import logging
+from typing import Any, Dict, List, Optional
+
+import httpx
 import pandas as pd
-from typing import List, Dict, Any, Optional
-from app.models.credential import Credential
-from app.core.security import security_manager
+
 from app.core.exceptions import KoboConnectionError
+from app.core.security import security_manager
+from app.models.credential import Credential
 from app.utils.retry import retry_with_backoff
 from app.utils.text_encoding import repair_dataframe_columns
 
 logger = logging.getLogger("kobo_service")
+
 
 class KoboService:
     XLS_EXPORT_PAYLOAD = {
@@ -28,7 +31,9 @@ class KoboService:
 
         export_type = export.get("type")
         export_settings = export.get("export_settings") or export.get("data") or {}
-        settings_type = export_settings.get("type") if isinstance(export_settings, dict) else None
+        settings_type = (
+            export_settings.get("type") if isinstance(export_settings, dict) else None
+        )
         return export_type in (None, "xls") or settings_type == "xls"
 
     @staticmethod
@@ -39,7 +44,7 @@ class KoboService:
             async with httpx.AsyncClient(
                 base_url=credential.base_url,
                 auth=(credential.username, password),
-                timeout=10.0
+                timeout=10.0,
             ) as client:
                 response = await client.get("/api/v2/assets/?format=json")
                 return response.status_code == 200
@@ -48,14 +53,16 @@ class KoboService:
             return False
 
     @staticmethod
-    @retry_with_backoff(retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException))
+    @retry_with_backoff(
+        retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException)
+    )
     async def list_forms(credential: Credential) -> List[Dict[str, Any]]:
         password = security_manager.decrypt(credential.encrypted_password)
         try:
             async with httpx.AsyncClient(
                 base_url=credential.base_url,
                 auth=(credential.username, password),
-                timeout=15.0
+                timeout=15.0,
             ) as client:
                 response = await client.get("/api/v2/assets/?format=json")
                 response.raise_for_status()
@@ -65,16 +72,21 @@ class KoboService:
                         "uid": item["uid"],
                         "name": item["name"],
                         "asset_type": item["asset_type"],
-                        "owner_username": item["owner__username"]
+                        "owner_username": item["owner__username"],
                     }
-                    for item in data.get("results", []) if item.get("asset_type") == "survey"
+                    for item in data.get("results", [])
+                    if item.get("asset_type") == "survey"
                 ]
         except httpx.HTTPError as e:
             raise KoboConnectionError(detail=str(e))
 
     @staticmethod
-    @retry_with_backoff(retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException))
-    async def get_form_structure(credential: Credential, asset_uid: str) -> Dict[str, Any]:
+    @retry_with_backoff(
+        retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException)
+    )
+    async def get_form_structure(
+        credential: Credential, asset_uid: str
+    ) -> Dict[str, Any]:
         """
         Récupère la structure complète: onglets (sheets) et colonnes (columns).
         Indispensable pour l'export CSV car un onglet = un fichier.
@@ -84,71 +96,88 @@ class KoboService:
             async with httpx.AsyncClient(
                 base_url=credential.base_url,
                 auth=(credential.username, password),
-                timeout=30.0
+                timeout=30.0,
             ) as client:
                 res = await client.get(f"/api/v2/assets/{asset_uid}/?format=json")
                 res.raise_for_status()
                 asset = res.json()
 
                 survey = asset.get("content", {}).get("survey", [])
-                
+
                 # Onglet principal par défaut
                 main_sheet_name = asset.get("name", "survey")
                 sheets = [{"name": main_sheet_name, "columns": []}]
-                
+
                 # Pile pour gérer les onglets imbriqués (Repeat Groups)
                 sheet_stack = [sheets[0]]
-                
+
                 for field in survey:
                     f_type = field.get("type", "")
-                    
+
                     if f_type == "begin_repeat":
                         new_sheet_name = field.get("name", "repeat")
                         new_sheet = {"name": new_sheet_name, "columns": []}
                         sheets.append(new_sheet)
                         sheet_stack.append(new_sheet)
                         continue
-                    
+
                     if f_type == "end_repeat":
                         if len(sheet_stack) > 1:
                             sheet_stack.pop()
                         continue
-                    
+
                     # Ignorer les types non-données
-                    if f_type in ("begin_group", "end_group", "note", "calculate", "hidden"):
+                    if f_type in (
+                        "begin_group",
+                        "end_group",
+                        "note",
+                        "calculate",
+                        "hidden",
+                    ):
                         continue
-                    
+
                     # Déterminer le nom de la colonne (Label ou Name)
                     label = field.get("label")
-                    if isinstance(label, list) and label: col = str(label[0]).strip()
-                    elif isinstance(label, str) and label.strip(): col = label.strip()
-                    else: col = field.get("name") or field.get("$autoname", "")
-                    
+                    if isinstance(label, list) and label:
+                        col = str(label[0]).strip()
+                    elif isinstance(label, str) and label.strip():
+                        col = label.strip()
+                    else:
+                        col = field.get("name") or field.get("$autoname", "")
+
                     if col:
                         sheet_stack[-1]["columns"].append(col)
-                
-                logger.info(f"Structure chargée pour {asset_uid}: {len(sheets)} onglets détectés.")
+
+                logger.info(
+                    "Structure chargée pour %s: %s onglets détectés.",
+                    asset_uid,
+                    len(sheets),
+                )
                 return {"sheets": sheets}
         except httpx.HTTPError as e:
             logger.error(f"Erreur structure Kobo {asset_uid}: {e}")
             raise KoboConnectionError(detail=str(e))
 
     @staticmethod
-    @retry_with_backoff(retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException))
+    @retry_with_backoff(
+        retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException)
+    )
     async def fetch_export_file(credential: Credential, asset_uid: str) -> bytes:
         password = security_manager.decrypt(credential.encrypted_password)
         async with httpx.AsyncClient(
             base_url=credential.base_url,
             auth=(credential.username, password),
-            timeout=120.0
+            timeout=120.0,
         ) as client:
             # 1. On cherche l'export le plus récent
             res = await client.get(f"/api/v2/assets/{asset_uid}/exports/")
             res.raise_for_status()
             exports = res.json().get("results", [])
-            
-            # Filtre pour ne garder que les exports XLS valides et récents (moins de 24h idéalement)
-            valid_exports = [e for e in exports if KoboService._is_downloadable_xls_export(e)]
+
+            # Garder les exports XLS valides et récents.
+            valid_exports = [
+                e for e in exports if KoboService._is_downloadable_xls_export(e)
+            ]
             valid_exports.sort(key=lambda x: x.get("date_created", ""), reverse=True)
 
             file_url = None
@@ -159,13 +188,14 @@ class KoboService:
                 logger.info(f"Déclenchement d'un nouvel export XLS pour {asset_uid}")
                 post_res = await client.post(
                     f"/api/v2/assets/{asset_uid}/exports/",
-                    json=KoboService.XLS_EXPORT_PAYLOAD
+                    json=KoboService.XLS_EXPORT_PAYLOAD,
                 )
                 post_res.raise_for_status()
-                
+
                 # 3. Attente active (Polling) du résultat (max 60s)
                 import asyncio
-                for _ in range(18): # 18 * 5s = 90s
+
+                for _ in range(18):  # 18 * 5s = 90s
                     await asyncio.sleep(5)
                     check_res = await client.get(f"/api/v2/assets/{asset_uid}/exports/")
                     checks = check_res.json().get("results", [])
@@ -173,9 +203,12 @@ class KoboService:
                     if checks and checks[0].get("result"):
                         file_url = checks[0]["result"]
                         break
-            
+
             if not file_url:
-                raise Exception("L'export Kobo prend trop de temps ou a échoué. Réessayez dans une minute.")
+                raise Exception(
+                    "L'export Kobo prend trop de temps ou a échoué. "
+                    "Réessayez dans une minute."
+                )
 
             # 4. Téléchargement du binaire
             file_res = await client.get(file_url)
@@ -201,8 +234,7 @@ class KoboService:
 
     @staticmethod
     async def fetch_and_merge_exports_multi(
-        cred_uid_pairs: list,
-        sheet_name: Optional[Any] = None
+        cred_uid_pairs: list, sheet_name: Optional[Any] = None
     ) -> Dict[str, pd.DataFrame]:
         all_sheets: Dict[str, List[pd.DataFrame]] = {}
         for cred, uid in cred_uid_pairs:
@@ -211,18 +243,20 @@ class KoboService:
                 dfs = pd.read_excel(io.BytesIO(excel_bytes), sheet_name=sheet_name)
                 if sheet_name is not None:
                     name = str(sheet_name)
-                    if name not in all_sheets: all_sheets[name] = []
+                    if name not in all_sheets:
+                        all_sheets[name] = []
                     all_sheets[name].append(dfs)
                 else:
                     for name, df in dfs.items():
-                        if name not in all_sheets: all_sheets[name] = []
+                        if name not in all_sheets:
+                            all_sheets[name] = []
                         all_sheets[name].append(df)
             except Exception as e:
                 logger.warning(f"Compte '{cred.username}' (uid={uid}) ignoré: {e}")
                 continue
         if not all_sheets:
             raise KoboConnectionError(detail="Aucun compte n'a pu être synchronisé.")
-        
+
         merged: Dict[str, pd.DataFrame] = {}
         for name, df_list in all_sheets.items():
             combined = pd.concat(df_list, ignore_index=True)
@@ -231,15 +265,22 @@ class KoboService:
         return merged
 
     @staticmethod
-    @retry_with_backoff(retries=3, exceptions=(httpx.NetworkError, httpx.TimeoutException))
-    async def download_media_file(credential: Credential, url: str, target_path: str) -> bool:
+    @retry_with_backoff(
+        retries=3, exceptions=(httpx.NetworkError, httpx.TimeoutException)
+    )
+    async def download_media_file(
+        credential: Credential, url: str, target_path: str
+    ) -> bool:
         password = security_manager.decrypt(credential.encrypted_password)
         try:
-            async with httpx.AsyncClient(auth=(credential.username, password), timeout=60.0) as client:
+            async with httpx.AsyncClient(
+                auth=(credential.username, password), timeout=60.0
+            ) as client:
                 async with client.stream("GET", url) as response:
                     if response.status_code == 200:
                         with open(target_path, "wb") as f:
-                            async for chunk in response.aiter_bytes(): f.write(chunk)
+                            async for chunk in response.aiter_bytes():
+                                f.write(chunk)
                         return True
             return False
         except Exception as e:

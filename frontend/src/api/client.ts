@@ -1,6 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+// API Client - Configuré avec gestion globale des erreurs [RELOAD_HMR]
 const api = axios.create({
   baseURL: 'http://127.0.0.1:8000/api', // Ajustez selon votre environnement
   headers: {
@@ -18,8 +19,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const { status, data } = error.response;
-    const message = data.message || "Une erreur est survenue.";
+    const { status } = error.response;
 
     // Gestion spécifique par status si non traitée par le backend
     if (status === 401) {

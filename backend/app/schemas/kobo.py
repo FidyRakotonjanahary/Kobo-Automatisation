@@ -1,12 +1,14 @@
-from pydantic import BaseModel
 from datetime import datetime
-from typing import List, Optional
+
+from pydantic import BaseModel
+
 
 class KoboAccountCreate(BaseModel):
     name: str
     base_url: str = "https://kf.kobotoolbox.org"
     username: str
     password: str
+
 
 class KoboAccountRead(BaseModel):
     id: int
@@ -17,6 +19,7 @@ class KoboAccountRead(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class KoboFormRead(BaseModel):
     uid: str

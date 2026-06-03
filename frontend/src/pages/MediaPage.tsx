@@ -1,19 +1,39 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import type { AxiosError, AxiosResponse } from 'axios';
 import api from '../api/client';
 import toast from 'react-hot-toast';
 import { 
   Play, CheckCircle, 
-  Activity, ShieldCheck, RefreshCw, Link as LinkIcon
+  ShieldCheck, Link as LinkIcon
 } from 'lucide-react';
 
+interface MediaMigrationConfig {
+  spreadsheet_id: string;
+  sheet_name: string;
+  drive_folder_id: string;
+}
+
+interface MediaMigrationResult {
+  success: number;
+  failed: number;
+}
+
+interface MediaMigrationResponse {
+  results: MediaMigrationResult;
+}
+
+interface ApiErrorBody {
+  message?: string;
+}
+
 const MediaPage = () => {
-  const [config, setConfig] = useState({
+  const [config, setConfig] = useState<MediaMigrationConfig>({
     spreadsheet_id: '',
     sheet_name: '',
     drive_folder_id: '',
   });
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<MediaMigrationResult | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -25,13 +45,17 @@ const MediaPage = () => {
       .catch(() => setGoogleConnected(false));
   }, []);
 
-  const migrateMutation = useMutation({
-    mutationFn: (data: any) => api.post('/media/migrate', data),
+  const migrateMutation = useMutation<
+    AxiosResponse<MediaMigrationResponse>,
+    AxiosError<ApiErrorBody>,
+    MediaMigrationConfig
+  >({
+    mutationFn: (data) => api.post<MediaMigrationResponse>('/media/migrate', data),
     onSuccess: (res) => {
       setResult(res.data.results);
       toast.success('Migration terminée avec succès');
     },
-    onError: (err: any) => {
+    onError: (err) => {
       const status = err.response?.status;
       const msg = err.response?.data?.message || 'Erreur inconnue';
       
@@ -65,9 +89,9 @@ const MediaPage = () => {
   }, [liveLogs]);
 
   useEffect(() => {
-    let interval: any;
+    let interval: number | undefined;
     if (migrateMutation.isPending) {
-      interval = setInterval(async () => {
+      interval = window.setInterval(async () => {
         try {
           const res = await api.get('/media/status');
           if (res.data.logs) setLiveLogs(res.data.logs);

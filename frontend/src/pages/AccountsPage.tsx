@@ -1,7 +1,7 @@
 ﻿import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 import { KoboAccount } from '../types';
-import { Plus, Wifi, Trash2, Database, User, Key, CheckCircle } from 'lucide-react';
+import { Plus, Wifi, Trash2, Database, User, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -35,7 +35,7 @@ const AccountsPage = () => {
       } else {
         toast.error('Échec de la connexion', { id: t });
       }
-    } catch (e) {
+    } catch {
       toast.error('Erreur de communication.', { id: t });
     }
   };
