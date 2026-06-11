@@ -14,7 +14,7 @@ logger = logging.getLogger("api_media")
 router = APIRouter()
 
 # Stockage temporaire de la progression
-migration_status = {"logs": [], "is_running": False}
+migration_status = {"logs": [], "is_running": False, "stop_requested": False}
 
 
 @router.get("/status")
@@ -25,6 +25,15 @@ async def get_migration_status():
 @router.get("/info")
 async def get_media_info():
     return {"service_account_email": "Mode personnel (OAuth2) actif"}
+
+
+@router.post("/stop")
+async def stop_migration():
+    global migration_status
+    if migration_status["is_running"]:
+        migration_status["stop_requested"] = True
+        return {"status": "stopping"}
+    return {"status": "not_running"}
 
 
 @router.post("/migrate")
@@ -42,14 +51,22 @@ async def start_migration(req: MigrationRequest, db: AsyncSession = Depends(get_
     try:
         google = GoogleService()
         engine = MediaEngine(google, kobo_accs)
+        migration_status["stop_requested"] = False
 
         def on_prog(msg):
             migration_status["logs"].append(msg)
             if len(migration_status["logs"]) > 50:
                 migration_status["logs"].pop(0)
 
+        def check_stop():
+            return migration_status["stop_requested"]
+
         stats = await engine.migrate_sheet(
-            req.spreadsheet_id, req.sheet_name, req.drive_folder_id, on_progress=on_prog
+            req.spreadsheet_id, 
+            req.sheet_name, 
+            req.drive_folder_id, 
+            on_progress=on_prog,
+            check_stop=check_stop
         )
         return {"status": "finished", "results": stats}
 

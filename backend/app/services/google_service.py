@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 from typing import Optional
 
 from googleapiclient.discovery import build
@@ -14,6 +15,7 @@ logger = logging.getLogger("google_service")
 
 class GoogleService:
     def __init__(self):
+        print("--- INITIALISATION GOOGLE SERVICE ---", file=sys.stderr)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         backend_dir = os.path.dirname(os.path.dirname(current_dir))
         TOKEN_FILE = os.path.join(backend_dir, "token.json")
@@ -54,19 +56,29 @@ class GoogleService:
             raise GoogleAuthError(detail=str(e))
 
     def _handle_google_error(self, e: HttpError):
+        import sys
         status = e.resp.status
         reason = str(e)
-        logger.error(f"Google API Error {status}: {reason}")
+        details = e.content.decode('utf-8')
+        print(f"!!! GOOGLE API ERROR {status} !!!", file=sys.stderr)
+        print(f"Reason: {reason}", file=sys.stderr)
+        print(f"Details: {details}", file=sys.stderr)
+        sys.stderr.flush()
+        
+        # On log aussi pour la postérité
+        logger.error(f"!!! GOOGLE API ERROR {status} !!!")
+        logger.error(f"Reason: {reason}")
+        logger.error(f"Details: {details}")
 
         if status == 401:
             raise GoogleAuthError(detail=reason)
         if status == 403:
             if "quota" in reason.lower() or "limit" in reason.lower():
                 raise GoogleQuotaError(detail=reason)
-            raise GooglePermissionError(detail=reason)
+            raise GooglePermissionError(detail=f"Erreur 403 (Forbidden): {reason} - Vérifiez que le compte a bien accès au fichier.")
         if status == 404:
-            raise Exception("Dossier ou fichier Drive introuvable.")
-        raise Exception(f"Erreur Google Drive ({status}): {reason}")
+            raise Exception(f"Dossier ou fichier Drive introuvable (404). ID vérifié : {reason}")
+        raise Exception(f"Erreur Google API ({status}): {reason}")
 
     def upload_file(
         self, local_path: str, folder_id: str, display_name: str, convert: bool = False

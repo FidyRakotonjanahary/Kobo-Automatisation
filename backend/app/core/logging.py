@@ -29,11 +29,11 @@ def setup_logging():
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
-    # Éviter la duplication si setup appelé plusieurs fois
-    if not root_logger.handlers:
-        root_logger.addHandler(file_handler)
-
-        # Console handler pour stdout
+    # Forcer l'ajout du handler de fichier même si d'autres existent (ex: uvicorn)
+    root_logger.addHandler(file_handler)
+    
+    if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        # Console handler pour stdout si absent
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)

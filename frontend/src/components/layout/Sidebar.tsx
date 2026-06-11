@@ -45,6 +45,7 @@ const Sidebar = () => {
               api.post('/google/logout').then(() => {
                 setGoogleStatus({connected: false});
                 toast.success("Déconnecté");
+                setTimeout(() => window.location.reload(), 1000);
               });
             }}
             className="px-3 py-1 bg-gray-900 text-white text-[10px] font-bold rounded-md hover:bg-black transition-all shadow-sm"

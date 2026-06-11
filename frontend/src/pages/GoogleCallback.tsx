@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
@@ -9,13 +9,18 @@ const GoogleCallback = () => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [error, setError] = useState('');
 
+    const called = useRef(false);
+
     useEffect(() => {
+        if (called.current) return;
+        
         const code = searchParams.get('code');
         if (code) {
+            called.current = true;
             api.post('/google/callback', { code })
                 .then(() => {
                     setStatus('success');
-                    setTimeout(() => navigate('/'), 2000);
+                    setTimeout(() => window.location.href = '/', 2000);
                 })
                 .catch(err => {
                     setStatus('error');

@@ -5,7 +5,7 @@ import api from '../api/client';
 import toast from 'react-hot-toast';
 import { 
   Play, CheckCircle, 
-  ShieldCheck, Link as LinkIcon
+  ShieldCheck, Link as LinkIcon, Square
 } from 'lucide-react';
 
 interface MediaMigrationConfig {
@@ -36,6 +36,7 @@ const MediaPage = () => {
   const [result, setResult] = useState<MediaMigrationResult | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
+  const [isStopping, setIsStopping] = useState(false);
   const consoleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,7 +127,19 @@ const MediaPage = () => {
 
     setLiveLogs([]);
     setResult(null);
+    setIsStopping(false);
     migrateMutation.mutate(config);
+  };
+
+  const handleStop = async () => {
+    setIsStopping(true);
+    try {
+      await api.post('/media/stop');
+      toast.success('Demande d\'arrêt envoyée');
+    } catch (e) {
+      toast.error('Erreur lors de l\'arrêt');
+      setIsStopping(false);
+    }
   };
 
   return (
@@ -187,7 +200,16 @@ const MediaPage = () => {
                 </div>
              </div>
 
-             <div className="flex justify-end mt-2">
+             <div className="flex justify-end mt-2 gap-3">
+                {migrateMutation.isPending && (
+                  <button 
+                    onClick={handleStop}
+                    disabled={isStopping}
+                    className="btn-secondary !bg-rose-500/10 !text-rose-500 !border-rose-500/20 hover:!bg-rose-500 hover:!text-white flex items-center gap-2 !h-10 !px-5 transition-all text-sm font-medium rounded-lg"
+                  >
+                    {isStopping ? 'Arrêt...' : <><Square size={12} fill="currentColor" /> Arrêter</>}
+                  </button>
+                )}
                 <button 
                   onClick={handleMigrate}
                   disabled={migrateMutation.isPending}

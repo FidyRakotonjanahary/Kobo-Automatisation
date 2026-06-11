@@ -1,0 +1,7 @@
+# Terminal 1 - Backend
+cd "C:\Users\hp\Desktop\Automatisation Kobo\backend"
+.\venv\Scripts\Activate.ps1; uvicorn app.main:app --reload
+
+# Terminal 2 - Frontend
+cd "C:\Users\hp\Desktop\Automatisation Kobo\frontend"
+npm run dev

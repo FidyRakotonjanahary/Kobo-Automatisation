@@ -51,13 +51,22 @@ async def get_login_url():
             400, "Fichier client_secrets.json introuvable sur le serveur."
         )
 
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        redirect_uri="http://localhost:3000/google-callback",
-    )
+    from urllib.parse import urlencode
+    
+    with open(CLIENT_SECRETS_FILE, "r") as f:
+        client_config = json.load(f)["web"]
 
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    params = {
+        "client_id": client_config["client_id"],
+        "redirect_uri": "http://localhost:3001/google-callback",
+        "response_type": "code",
+        "scope": " ".join(SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+    }
+    
+    auth_url = f"{client_config['auth_uri']}?{urlencode(params)}"
     return {"url": auth_url}
 
 
@@ -69,31 +78,50 @@ async def callback(data: dict):
         raise HTTPException(400, "Code manquant")
 
     try:
-        flow = Flow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE,
-            scopes=SCOPES,
-            redirect_uri="http://localhost:3000/google-callback",
+        # Échanger le code contre un token via une requête directe pour éviter les erreurs PKCE/Flow
+        import requests
+        with open(CLIENT_SECRETS_FILE, "r") as f:
+            client_config = json.load(f)["web"]
+
+        token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": client_config["client_id"],
+                "client_secret": client_config["client_secret"],
+                "redirect_uri": "http://localhost:3001/google-callback",
+                "grant_type": "authorization_code",
+            },
         )
-        flow.fetch_token(code=code)
-        creds = flow.credentials
 
-        # Récupérer l'email de l'utilisateur
-        from googleapiclient.discovery import build
+        if not token_response.ok:
+            raise HTTPException(400, f"Erreur Google Token: {token_response.text}")
 
-        service = build("oauth2", "v2", credentials=creds)
-        user_info = service.userinfo().get().execute()
+        creds_data = token_response.json()
+        access_token = creds_data.get("access_token")
+        refresh_token = creds_data.get("refresh_token")
+
+        # Récupérer l'email de l'utilisateur avec l'access_token
+        user_info_response = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        user_info = user_info_response.json()
         email = user_info.get("email")
 
         # Sauvegarder le token
+        from datetime import datetime, timedelta
+        expiry = datetime.utcnow() + timedelta(seconds=creds_data.get("expires_in", 3600))
+
         token_data = {
-            "token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_uri": creds.token_uri,
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "scopes": creds.scopes,
+            "token": access_token,
+            "refresh_token": refresh_token,
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "client_id": client_config["client_id"],
+            "client_secret": client_config["client_secret"],
+            "scopes": SCOPES,
             "email": email,
-            "expiry": creds.expiry.isoformat() if creds.expiry else None,
+            "expiry": expiry.isoformat(),
         }
 
         with open(TOKEN_FILE, "w") as f:
@@ -101,8 +129,10 @@ async def callback(data: dict):
 
         return {"status": "success", "email": email}
     except Exception as e:
-        logger.error(f"Erreur callback Google: {e}")
-        raise HTTPException(500, str(e))
+        import traceback
+        logger.error(f"Erreur callback Google: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)}")
 
 
 @router.post("/logout")

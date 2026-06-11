@@ -20,17 +20,17 @@ class MediaEngine:
     async def pre_flight_check(self, spreadsheet_id: str, drive_folder_id: str):
         """Vérifie l'accès aux ressources avant de commencer."""
         try:
-            # Tester l'accès au Sheet
+            # Tester l'accès au Sheet (on demande spreadsheetId car 'id' n'existe pas en tant que champ racine)
             self.google.sheets.spreadsheets().get(
-                spreadsheetId=spreadsheet_id, fields="id"
+                spreadsheetId=spreadsheet_id, fields="spreadsheetId"
             ).execute()
             # Tester l'accès au dossier Drive
             self.google.drive.files().get(fileId=drive_folder_id, fields="id").execute()
         except Exception as e:
             logger.error(f"Pre-flight check failed: {e}")
+            # On relaie l'erreur brute pour savoir pourquoi ça bloque
             raise AppException(
-                "Impossible d'accéder au Google Sheet ou au dossier Drive. "
-                "Vérifiez vos permissions.",
+                f"Accès Google refusé : {str(e)}",
                 403,
             )
 
@@ -40,6 +40,7 @@ class MediaEngine:
         sheet_name: Optional[str],
         drive_folder_id: str,
         on_progress: Optional[callable] = None,
+        check_stop: Optional[callable] = None,
     ):
         def report(msg):
             logger.info(msg)
@@ -76,8 +77,12 @@ class MediaEngine:
         global_stats = {"success": 0, "failed": 0}
         for s_name in target_sheets:
             report(f"📂 Traitement de l'onglet: {s_name}")
+            if check_stop and check_stop():
+                report("🛑 Migration arrêtée par l'utilisateur.")
+                break
+                
             sheet_stats = await self._migrate_single_tab(
-                spreadsheet_id, s_name, drive_folder_id, on_progress
+                spreadsheet_id, s_name, drive_folder_id, on_progress, check_stop
             )
             global_stats["success"] += sheet_stats["success"]
             global_stats["failed"] += sheet_stats["failed"]
@@ -89,6 +94,7 @@ class MediaEngine:
         sheet_name: str,
         drive_folder_id: str,
         on_progress: Optional[callable] = None,
+        check_stop: Optional[callable] = None,
     ):
         def report(msg):
             logger.info(msg)
@@ -96,7 +102,7 @@ class MediaEngine:
                 on_progress(msg)
 
         try:
-            rows = self.google.get_sheet_data(spreadsheet_id, f"'{sheet_name}'!A:Z")
+            rows = self.google.get_sheet_data(spreadsheet_id, f"'{sheet_name}'!A:ZZ")
         except Exception as e:
             report(f"⚠️ Impossible de lire l'onglet '{sheet_name}': {e}")
             return {"success": 0, "failed": 0}
@@ -106,11 +112,21 @@ class MediaEngine:
 
         headers = rows[0]
         data_rows = rows[1:]
-        url_cols = [i for i, h in enumerate(headers) if "_URL" in str(h)]
+        # Détection intelligente : Titres + Contenu
+        keywords = ["_url", "photo", "image", "lien", "media", "file"]
+        url_cols = [i for i, h in enumerate(headers) if any(kw in str(h).lower() for kw in keywords)]
+
+        if not url_cols and data_rows:
+            for i in range(len(headers)):
+                for r in data_rows[:10]:
+                    val = str(r[i]) if i < len(r) else ""
+                    if "kobotoolbox.org" in val or "/attachment/" in val:
+                        url_cols.append(i)
+                        break
         stats = {"success": 0, "failed": 0}
 
         if not url_cols:
-            report(f"ℹ️ Aucun champ photo reconnu dans '{sheet_name}'.")
+            report(f"ℹ️ Aucun champ photo reconnu. Champs scannés : {headers}")
             return stats
 
         report(f"🖼️ {len(data_rows)} lignes à scanner...")
@@ -130,6 +146,10 @@ class MediaEngine:
                     if custom_name and custom_name != "None":
                         display_name = f"{custom_name}.jpg"
 
+                if check_stop and check_stop():
+                    report("🛑 Interruption demandée...")
+                    break
+
                 report(f"⬇️ En cours : Ligne {real_row_idx}...")
                 local_path = os.path.join(
                     self.temp_dir, f"temp_{real_row_idx}_{col_idx}.jpg"
@@ -147,7 +167,7 @@ class MediaEngine:
                         range_at = f"'{sheet_name}'!{col_letter}{real_row_idx}"
                         self.google.update_cell(spreadsheet_id, range_at, drive_link)
                         stats["success"] += 1
-                        report(f"✅ Ligne {real_row_idx} migrée")
+                        report(f"✅ Ligne {real_row_idx} [Col {col_letter}] migrée vers Drive")
                     except Exception:
                         report(f"❌ Erreur Drive (L{real_row_idx})")
                         stats["failed"] += 1
