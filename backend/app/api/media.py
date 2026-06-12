@@ -65,6 +65,7 @@ async def start_migration(req: MigrationRequest, db: AsyncSession = Depends(get_
             req.spreadsheet_id, 
             req.sheet_name, 
             req.drive_folder_id, 
+            sheet_folder_mapping=req.sheet_folder_mapping,
             on_progress=on_prog,
             check_stop=check_stop
         )

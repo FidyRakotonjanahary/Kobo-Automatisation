@@ -5,13 +5,14 @@ import api from '../api/client';
 import toast from 'react-hot-toast';
 import { 
   Play, CheckCircle, 
-  ShieldCheck, Link as LinkIcon, Square
+  ShieldCheck, Link as LinkIcon, Square, Plus, Trash2
 } from 'lucide-react';
 
 interface MediaMigrationConfig {
   spreadsheet_id: string;
   sheet_name: string;
   drive_folder_id: string;
+  sheet_folder_mapping?: Record<string, string>;
 }
 
 interface MediaMigrationResult {
@@ -33,6 +34,7 @@ const MediaPage = () => {
     sheet_name: '',
     drive_folder_id: '',
   });
+  const [mappings, setMappings] = useState<{sheet: string, folder: string}[]>([]);
   const [result, setResult] = useState<MediaMigrationResult | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
@@ -59,18 +61,16 @@ const MediaPage = () => {
     onError: (err) => {
       const status = err.response?.status;
       const msg = err.response?.data?.message || 'Erreur inconnue';
-      
       if (status === 401) {
         toast((t) => (
           <div className="flex flex-col gap-2">
             <span className="font-medium text-rose-400">Session Google expirée</span>
-            <p className="text-[10px] text-gray-400">Veuillez vous reconnecter pour continuer la migration.</p>
             <button 
               onClick={() => {
                 window.location.href = 'http://127.0.0.1:8000/api/google/login';
                 toast.dismiss(t.id);
               }}
-              className="btn-primary-linear !h-7 !px-2 !text-[10px] self-end"
+              className="btn-primary-linear !h-7 !px-2 !text-[10px]"
             >
               Se reconnecter
             </button>
@@ -111,13 +111,12 @@ const MediaPage = () => {
   };
 
   const handleMigrate = () => {
-    // VÉRIFICATION PRÉ-VOL
     if (!navigator.onLine) {
         toast.error("Vérifiez votre connexion Internet.");
         return;
     }
     if (!googleConnected) {
-        toast.error("Veuillez connecter votre compte Google dans la sidebar.");
+        toast.error("Veuillez connecter votre compte Google.");
         return;
     }
     if (!config.spreadsheet_id || !config.drive_folder_id) {
@@ -125,10 +124,20 @@ const MediaPage = () => {
         return;
     }
 
+    const mappingRecord: Record<string, string> = {};
+    mappings.forEach(m => {
+        if (m.sheet.trim() && m.folder.trim()) {
+            mappingRecord[m.sheet.trim()] = extractGoogleId(m.folder);
+        }
+    });
+
     setLiveLogs([]);
     setResult(null);
     setIsStopping(false);
-    migrateMutation.mutate(config);
+    migrateMutation.mutate({
+        ...config,
+        sheet_folder_mapping: Object.keys(mappingRecord).length > 0 ? mappingRecord : undefined
+    });
   };
 
   const handleStop = async () => {
@@ -142,15 +151,22 @@ const MediaPage = () => {
     }
   };
 
+  const addMapping = () => setMappings([...mappings, { sheet: '', folder: '' }]);
+  const removeMapping = (index: number) => setMappings(mappings.filter((_, i) => i !== index));
+  const updateMapping = (index: number, field: 'sheet' | 'folder', value: string) => {
+    const newMappings = [...mappings];
+    newMappings[index][field] = value;
+    setMappings(newMappings);
+  };
+
   return (
     <div className="page-shell-narrow">
-      {/* Header */}
       <div className="page-header">
         <div>
           <p className="page-kicker">Google Drive</p>
           <h1 className="page-title">Migration Média</h1>
           <p className="page-subtitle max-w-lg">
-            Transfert automatisé des photos Kobo vers Google Drive avec mise à jour des liens Excel.
+            Transfert automatisé des photos Kobo vers Google Drive avec remise en forme des liens.
           </p>
         </div>
         <div className={`status-pill ${googleConnected ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
@@ -161,8 +177,8 @@ const MediaPage = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
         <div className="space-y-6 flex flex-col">
-          <div className="surface-panel p-5 lg:p-6 space-y-6 flex-1 flex flex-col">
-             <div className="space-y-6">
+          <div className="surface-panel p-5 lg:p-6 space-y-6 flex-1">
+             <div className="space-y-4">
                 <div className="space-y-2">
                     <label className="label-linear">Lien du Google Sheet Source</label>
                     <div className="relative group">
@@ -183,24 +199,62 @@ const MediaPage = () => {
                         <label className="label-linear">Nom de l'onglet (Optionnel)</label>
                         <input 
                             className="input-linear" 
-                            placeholder="ex: Photos" 
+                            placeholder="Par défaut : tous" 
                             value={config.sheet_name} 
                             onChange={e => setConfig({...config, sheet_name: e.target.value})} 
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="label-linear">Dossier Drive Cible</label>
+                        <label className="label-linear">Dossier Drive Principal</label>
                         <input 
                             className="input-linear" 
-                            placeholder="Lien du dossier destination" 
+                            placeholder="Destination par défaut" 
                             value={config.drive_folder_id} 
                             onChange={e => setConfig({...config, drive_folder_id: extractGoogleId(e.target.value)})} 
                         />
                     </div>
                 </div>
+
+                {/* Section Mapping Avancé */}
+                <div className="pt-4 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-3">
+                        <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Configuration par onglet (Optionnel)</label>
+                        <button 
+                            onClick={addMapping}
+                            className="flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-700 font-medium bg-indigo-50 px-2 py-1 rounded"
+                        >
+                            <Plus size={12} /> Ajouter un dossier spécifique
+                        </button>
+                    </div>
+                    
+                    <div className="space-y-2">
+                        {mappings.map((m, i) => (
+                            <div key={i} className="flex gap-2 items-center">
+                                <input 
+                                    className="input-linear !h-9 text-[11px] flex-1" 
+                                    placeholder="Nom de l'onglet (ex: reseau)" 
+                                    value={m.sheet}
+                                    onChange={e => updateMapping(i, 'sheet', e.target.value)}
+                                />
+                                <input 
+                                    className="input-linear !h-9 text-[11px] flex-[1.5]" 
+                                    placeholder="ID du dossier Drive" 
+                                    value={m.folder}
+                                    onChange={e => updateMapping(i, 'folder', extractGoogleId(e.target.value))}
+                                />
+                                <button 
+                                    onClick={() => removeMapping(i)}
+                                    className="p-2 text-gray-400 hover:text-rose-500 transition-colors"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
              </div>
 
-             <div className="flex justify-end mt-2 gap-3">
+             <div className="flex justify-end mt-6 gap-3">
                 {migrateMutation.isPending && (
                   <button 
                     onClick={handleStop}
@@ -232,7 +286,7 @@ const MediaPage = () => {
 
           <div className="surface-panel-soft p-4">
              <p className="text-[11px] text-gray-500 leading-relaxed font-sans">
-                <span className="font-semibold text-gray-600">Sécurité & Reprise :</span> L'application détecte automatiquement les photos déjà migrées pour éviter les doublons en cas de relance.
+                <span className="font-semibold text-gray-600">Note :</span> Si un onglet n'est pas configuré ci-dessus, il utilisera le "Dossier Drive Principal".
              </p>
           </div>
         </div>
@@ -245,22 +299,8 @@ const MediaPage = () => {
             </div>
           </div>
           
-          {migrateMutation.isPending && (
-            <div className="progress-bar-container">
-               <div className="progress-bar-inner"></div>
-            </div>
-          )}
-          <div className="border-b border-[rgba(255,255,255,0.06)]"></div>
-
-          <div ref={consoleRef} className="console-content custom-scrollbar custom-scrollbar-dark">
-            {liveLogs.length === 0 && !result && !migrateMutation.isPending && (
-              <p className="text-xs text-white/20 text-center mt-8 font-sans">En attente de démarrage...</p>
-            )}
-            {migrateMutation.isPending && liveLogs.length === 0 && (
-              <p className="text-xs text-white/30 text-center mt-8 animate-pulse font-sans">Initialisation...</p>
-            )}
-            
-            {liveLogs.map((log, i) => (
+          <div ref={consoleRef} className="console-content custom-scrollbar custom-scrollbar-dark min-h-[400px]">
+             {liveLogs.map((log, i) => (
               <div key={i} className="flex gap-2.5">
                 <span className="text-white/10 text-[9px] min-w-[45px] select-none">{new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                 <p className={`text-[11px] leading-relaxed break-words ${

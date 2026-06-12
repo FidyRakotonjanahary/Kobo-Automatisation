@@ -29,6 +29,7 @@ class MigrationRequest(BaseModel):
     spreadsheet_id: str
     sheet_name: Optional[str] = None
     drive_folder_id: str
+    sheet_folder_mapping: Optional[Dict[str, str]] = None
     google_service_account: Optional[Dict[str, Any]] = (
         None  # Optionnel, utilise le défaut serveur si absent
     )
@@ -37,3 +38,10 @@ class MigrationRequest(BaseModel):
     @classmethod
     def validate_ids(cls, v):
         return extract_google_id(v)
+
+    @field_validator("sheet_folder_mapping", mode="after")
+    @classmethod
+    def validate_mapping_ids(cls, v):
+        if v:
+            return {sheet: extract_google_id(fid) for sheet, fid in v.items()}
+        return v

@@ -39,6 +39,7 @@ class MediaEngine:
         spreadsheet_id: str,
         sheet_name: Optional[str],
         drive_folder_id: str,
+        sheet_folder_mapping: Optional[dict] = None,
         on_progress: Optional[callable] = None,
         check_stop: Optional[callable] = None,
     ):
@@ -80,9 +81,15 @@ class MediaEngine:
             if check_stop and check_stop():
                 report("🛑 Migration arrêtée par l'utilisateur.")
                 break
-                
+            
+            # Utiliser le dossier spécifique si fourni, sinon le dossier par défaut
+            target_folder = drive_folder_id
+            if sheet_folder_mapping and s_name in sheet_folder_mapping:
+                target_folder = sheet_folder_mapping[s_name]
+                report(f"📁 Dossier spécifique détecté pour '{s_name}' : {target_folder}")
+
             sheet_stats = await self._migrate_single_tab(
-                spreadsheet_id, s_name, drive_folder_id, on_progress, check_stop
+                spreadsheet_id, s_name, target_folder, on_progress, check_stop
             )
             global_stats["success"] += sheet_stats["success"]
             global_stats["failed"] += sheet_stats["failed"]
