@@ -265,7 +265,14 @@ class ExportEngine:
 
             # Filtrage colonnes
             if selected_columns is not None:
-                actual_cols = [c for c in selected_columns if c in site_main_df.columns]
+                # Correspondance intelligente des colonnes (insensible à la casse / espaces)
+                existing_cols_map = {c.strip().lower(): c for c in site_main_df.columns}
+                actual_cols = []
+                for sc in selected_columns:
+                    sc_norm = sc.strip().lower()
+                    if sc_norm in existing_cols_map:
+                        actual_cols.append(existing_cols_map[sc_norm])
+                
                 mandatory = [
                     "_id",
                     "_index",
