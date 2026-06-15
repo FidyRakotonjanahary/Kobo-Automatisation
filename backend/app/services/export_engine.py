@@ -219,30 +219,39 @@ class ExportEngine:
         )
         main_df = dfs[sheet_names[0]].copy()
 
-        # Recherche intelligente de la colonne pivot dans tous les onglets
+        # Recherche intelligente et robuste de la colonne pivot
         source_df = None
+        matched_pivot_col = None
+        
         if pivot_column:
-            # D'abord dans l'onglet principal
-            if pivot_column in main_df.columns:
-                source_df = main_df
-            else:
-                # Sinon on cherche dans les autres
-                for s_name, s_df in dfs.items():
-                    if pivot_column in s_df.columns:
-                        source_df = s_df
-                        logger.info(f"Colonne pivot '{pivot_column}' trouvée dans l'onglet '{s_name}'")
-                        break
+            target_norm = pivot_column.replace("_", " ").strip().lower()
             
-            if source_df is None:
-                raise ValueError(f"Colonne '{pivot_column}' introuvable dans aucun des onglets.")
+            # On parcourt d'abord l'onglet principal, puis les autres
+            search_order = [sheet_names[0]] + [s for s in sheet_names if s != sheet_names[0]]
+            
+            for s_name in search_order:
+                s_df = dfs[s_name]
+                for col in s_df.columns:
+                    if str(col).replace("_", " ").strip().lower() == target_norm:
+                        matched_pivot_col = col
+                        source_df = s_df
+                        break
+                if source_df is not None:
+                    break
 
-            # Nettoyage des valeurs de pivot
-            source_df[pivot_column] = (
-                source_df[pivot_column]
+            if source_df is None:
+                raise ValueError(f"La colonne '{pivot_column}' est introuvable dans le fichier Excel.")
+
+            # Nettoyage des valeurs de pivot sur la colonne RÉELLE trouvée
+            source_df[matched_pivot_col] = (
+                source_df[matched_pivot_col]
                 .fillna("NON_DEFINI")
+                .apply(str)
                 .apply(TextNormalizer.normalize)
             )
-            unique_sites = sorted(source_df[pivot_column].unique())
+            unique_sites = sorted(source_df[matched_pivot_col].unique())
+            # On met à jour le nom du pivot pour la suite du script avec le vrai nom trouvé
+            pivot_column = matched_pivot_col
         else:
             unique_sites = ["Dataset_Complet"]
             pivot_column = "Export_Type"
