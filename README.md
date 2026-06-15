@@ -27,17 +27,59 @@ Une solution complète pour automatiser l'extraction, la fusion et la migration 
 
 ---
 
-## ▶️ Démarrage rapide (Windows)
+## 🔑 Étape 1 — Créer votre fichier `client_secrets.json`
 
-> **C'est la méthode recommandée.** Aucune commande à taper.
+> Cette étape est **obligatoire** avant le premier démarrage. Elle est **gratuite** et prend environ 5 minutes.
 
-### Prérequis (à installer une seule fois)
+L'application utilise l'API Google (Drive + Sheets). Vous devez créer vos propres identifiants OAuth2 sur Google Cloud Console.
 
-| Logiciel                  | Version minimale | Lien                                                                                 |
-| ------------------------- | ---------------- | ------------------------------------------------------------------------------------ |
-| **Python**                | 3.11+            | [python.org](https://www.python.org/downloads/) — ⚠️ cocher **"Add Python to PATH"** |
-| **Node.js**               | 20+              | [nodejs.org](https://nodejs.org/)                                                    |
-| **`client_secrets.json`** | —                | Fichier Google OAuth à placer dans `backend/`                                        |
+### Guide pas-à-pas
+
+**1. Créer un projet Google Cloud**
+
+- Allez sur [console.cloud.google.com](https://console.cloud.google.com/)
+- Cliquez sur **"Sélectionner un projet"** → **"Nouveau projet"**
+- Donnez un nom (ex: `kobo-automation`) et cliquez **"Créer"**
+
+**2. Activer les APIs nécessaires**
+
+- Dans le menu gauche : **"APIs et services"** → **"Bibliothèque"**
+- Recherchez et activez :
+  - ✅ **Google Drive API**
+  - ✅ **Google Sheets API**
+  - ✅ **Google+ API** (ou "People API")
+
+**3. Créer les identifiants OAuth2**
+
+- **"APIs et services"** → **"Identifiants"** → **"Créer des identifiants"** → **"ID client OAuth"**
+- **Type d'application** : `Application Web`
+- **Nom** : `Kobo Automation` (ou ce que vous voulez)
+- **URI de redirection autorisés** → Ajouter : `http://localhost:3001/google-callback`
+- Cliquez **"Créer"**
+
+**4. Télécharger et renommer le fichier**
+
+- Cliquez sur **⬇️ Télécharger le fichier JSON**
+- Le fichier téléchargé s'appelle quelque chose comme `client_secret_XXXX.apps.googleusercontent.com.json`
+- ⚠️ **Renommez-le exactement en : `client_secrets.json`** (avec un **s** à la fin)
+- Placez-le dans le dossier **`backend/`** de ce projet
+
+**5. Configurer l'écran de consentement** _(si demandé)_
+
+- **"APIs et services"** → **"Écran de consentement OAuth"**
+- Type : `Externe` → Remplissez le nom de l'application
+- Ajoutez votre email dans **"Utilisateurs test"**
+
+---
+
+## ▶️ Étape 2 — Démarrer l'application (Windows)
+
+### Prérequis logiciels
+
+| Logiciel    | Version minimale | Lien                                                                                 |
+| ----------- | ---------------- | ------------------------------------------------------------------------------------ |
+| **Python**  | 3.11+            | [python.org](https://www.python.org/downloads/) — ⚠️ cocher **"Add Python to PATH"** |
+| **Node.js** | 20+              | [nodejs.org](https://nodejs.org/)                                                    |
 
 ### Lancement
 
@@ -98,7 +140,8 @@ Puis ouvrir : **http://localhost:3001**
 
 ## ⚠️ Notes Techniques
 
+- **`client_secrets.json`** : Ce fichier n'est **pas** inclus dans le dépôt (`.gitignore`). Chaque utilisateur crée le sien via Google Cloud Console (voir Étape 1).
 - **Portabilité du venv** : L'environnement virtuel Python n'est **pas portable**. Si vous déplacez le dossier projet, supprimez `backend/venv/` et relancez `Lancer.bat` — il le recrée automatiquement.
-- **Scopes OAuth** : L'application requiert `drive.file` et `spreadsheets`.
+- **Scopes OAuth** : L'application requiert `drive`, `spreadsheets`, et `userinfo.email`.
 - **Environnement Dev** : En local, `OAUTHLIB_INSECURE_TRANSPORT` est activé pour autoriser le flux OAuth via HTTP.
 - **Base de Données** : Utilise SQLite (`kobo_automation.db`) pour stocker localement les configurations de comptes et les logs.
