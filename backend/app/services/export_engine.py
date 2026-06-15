@@ -264,7 +264,9 @@ class ExportEngine:
             )
 
             # Filtrage colonnes
-            if selected_columns is not None:
+            # On ne filtre QUE si l'utilisateur a envoyé une liste restreinte. 
+            # Si la liste est quasi-complète ou vide, on garde tout pour ne rien perdre.
+            if selected_columns and len(selected_columns) < (len(site_main_df.columns) * 0.9):
                 # Correspondance intelligente des colonnes (insensible à la casse / espaces)
                 existing_cols_map = {c.strip().lower(): c for c in site_main_df.columns}
                 actual_cols = []
@@ -273,19 +275,15 @@ class ExportEngine:
                     if sc_norm in existing_cols_map:
                         actual_cols.append(existing_cols_map[sc_norm])
                 
-                mandatory = [
-                    "_id",
-                    "_index",
-                    "_uuid",
-                    "_submission_time",
-                    "_parent_index",
-                    pivot_column,
-                ]
+                # S'assurer que les colonnes vitales et de pivot sont là
+                mandatory = ["_id", "_index", "_uuid", "_parent_index", pivot_column]
                 for m in mandatory:
                     if m in site_main_df.columns and m not in actual_cols:
                         actual_cols.append(m)
+                
                 site_export_main = site_main_df[actual_cols]
             else:
+                # MODE COMPLET : On garde absolument toutes les colonnes du fichier original
                 site_export_main = site_main_df
 
             try:
@@ -326,7 +324,16 @@ class ExportEngine:
                         normalized_selected = [s.strip().lower() for s in (selected_sheets or [])]
                         
                         main_sheet_name = sheet_names[0]
-                        is_main_selected = not selected_sheets or main_sheet_name.strip().lower() in normalized_selected
+                        main_sheet_lower = main_sheet_name.strip().lower()
+                        
+                        # Match si : 
+                        # 1. Pas de sélection (on prend tout)
+                        # 2. Match exact
+                        # 3. Le nom Excel commence par le nom sélectionné (ou vice-versa)
+                        is_main_selected = not selected_sheets or \
+                                          main_sheet_lower in normalized_selected or \
+                                          any(main_sheet_lower.startswith(s[:25]) for s in normalized_selected) or \
+                                          any(s.startswith(main_sheet_lower[:25]) for s in normalized_selected)
                         
                         if is_main_selected:
                             self._format_kobo_index_columns(site_export_main).to_excel(

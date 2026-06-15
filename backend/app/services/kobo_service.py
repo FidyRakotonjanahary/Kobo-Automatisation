@@ -21,6 +21,7 @@ class KoboService:
         "hierarchy_in_labels": False,
         "multiple_select": "summary",
         "fields_from_all_versions": True,
+        "include_media_url": True,
         "group_sep": "/",
     }
 
@@ -180,13 +181,27 @@ class KoboService:
             auth=(credential.username, password),
             timeout=120.0,
         ) as client:
-            # 1. Toujours déclencher un nouvel export frais
+            # 1. Tenter avec le français, sinon fallback sur la langue par défaut
             logger.info(f"Déclenchement d'un nouvel export XLS pour {asset_uid}")
-            post_res = await client.post(
-                f"/api/v2/assets/{asset_uid}/exports/",
-                json=KoboService.XLS_EXPORT_PAYLOAD,
-            )
-            post_res.raise_for_status()
+            try:
+                post_res = await client.post(
+                    f"/api/v2/assets/{asset_uid}/exports/",
+                    json=KoboService.XLS_EXPORT_PAYLOAD,
+                )
+                post_res.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 400:
+                    logger.warning("Langue 'French (fr)' non trouvée, fallback sur '_default'")
+                    payload = KoboService.XLS_EXPORT_PAYLOAD.copy()
+                    payload["lang"] = "_default"
+                    post_res = await client.post(
+                        f"/api/v2/assets/{asset_uid}/exports/",
+                        json=payload,
+                    )
+                    post_res.raise_for_status()
+                else:
+                    raise e
+            
             new_export_url = post_res.json().get("url", "")
 
             # 2. Polling : attendre que l'export soit prêt (max 90s)

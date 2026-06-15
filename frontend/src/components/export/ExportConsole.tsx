@@ -55,9 +55,10 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => (
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold text-white/90 truncate uppercase tracking-tight italic">{f.site}</p>
-                    <p className="text-[10px] text-white/40">{f.rows} soumissions trait{"\u00e9"}es</p>
+                    <p className="text-[9px] text-indigo-400/70 truncate font-mono mt-0.5">{f.path.split(/[\\/]/).pop()}</p>
+                    <p className="text-[10px] text-white/40 mt-1">{f.rows} soumissions trait{"\u00e9"}es</p>
                   </div>
-                  <ChevronRight size={14} className="text-white/10 group-hover:text-white" />
+                  <FolderOpen size={14} className="text-white/10 group-hover:text-indigo-400" />
                 </div>
               </div>
             ))}

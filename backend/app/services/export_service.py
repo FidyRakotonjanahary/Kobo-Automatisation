@@ -118,11 +118,13 @@ class ExportService:
             if not sheet_names:
                 raise ValueError("Le fichier source est vide.")
 
+            # Priorité à l'onglet sélectionné, sinon le premier
             sheet_name = sheet_names[0]
             if req.selected_sheets:
-                sheet_name = next(
-                    (name for name in req.selected_sheets if name in dfs), sheet_name
-                )
+                for target in req.selected_sheets:
+                    if target in dfs:
+                        sheet_name = target
+                        break
 
             df = repair_dataframe_columns(dfs[sheet_name])
             preview_df = df.head(5)
@@ -148,12 +150,26 @@ class ExportService:
         try:
             merged_dfs = await KoboService.fetch_and_merge_exports_multi(cred_uid_pairs)
             sheets = list(merged_dfs.keys())
-            main_df = list(merged_dfs.values())[0]
+            if not sheets:
+                raise ValueError("Le fichier Excel récupéré est vide.")
+            
+            # Utiliser le premier onglet par défaut (source principale)
+            main_df = merged_dfs[sheets[0]]
             columns = [str(column) for column in main_df.columns]
             sites = []
-            if req.pivot_column and req.pivot_column in main_df.columns:
-                unique_vals = main_df[req.pivot_column].dropna().unique()
-                sites = sorted([TextNormalizer.normalize(str(v)) for v in unique_vals])
+            if req.pivot_column:
+                # Recherche robuste de la colonne pivot (insensible casse/espaces/underscores)
+                target_norm = req.pivot_column.replace("_", " ").strip().lower()
+                matched_col = None
+                for col in main_df.columns:
+                    if str(col).replace("_", " ").strip().lower() == target_norm:
+                        matched_col = col
+                        break
+                
+                if matched_col:
+                    unique_vals = main_df[matched_col].dropna().unique()
+                    sites = sorted([TextNormalizer.normalize(str(v)) for v in unique_vals])
+            
             return PreviewSitesResult(sites=sites, sheets=sheets, columns=columns)
         except Exception as e:
             logger.error(f"Erreur preview-sites: {e}")
