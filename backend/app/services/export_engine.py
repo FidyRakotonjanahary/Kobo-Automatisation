@@ -85,17 +85,12 @@ class ExportEngine:
     def _filter_related_sheet_for_site(
         sheet_df: pd.DataFrame, site_main_df: pd.DataFrame, valid_indices: List[Any]
     ) -> pd.DataFrame:
-        if "_parent_index" in sheet_df.columns and valid_indices:
-            filtered = sheet_df[sheet_df["_parent_index"].isin(valid_indices)].copy()
+        if "_parent_index" in sheet_df.columns:
+            # Filtrage par parent_index (comparaison robuste par chaîne de caractères)
+            idx_str = [str(v).split(".")[0] for v in (valid_indices or [])]
+            filtered = sheet_df[sheet_df["_parent_index"].astype(str).apply(lambda x: x.split(".")[0]).isin(idx_str)].copy()
             if not filtered.empty:
                 return filtered
-            # Fallback : essayer via str si les types ne correspondaient pas
-            valid_indices_str = [str(v) for v in valid_indices]
-            filtered_str = sheet_df[
-                sheet_df["_parent_index"].astype(str).isin(valid_indices_str)
-            ].copy()
-            if not filtered_str.empty:
-                return filtered_str
 
         relation_pairs = [
             ("_submission__uuid", "_uuid"),
@@ -288,15 +283,22 @@ class ExportEngine:
             if matched_pivot_col in main_df.columns:
                 # Pivot classique dans l'onglet principal
                 site_main_df = main_df[main_df[matched_pivot_col] == site]
-                valid_indices = site_main_df["_index"].tolist() if "_index" in site_main_df.columns else []
+                valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
             else:
                 # Pivot dans un onglet enfant (Repeat Group)
                 anchor_df = source_df[source_df[matched_pivot_col] == site]
                 if "_parent_index" in anchor_df.columns:
-                    valid_indices = anchor_df["_parent_index"].unique().tolist()
+                    # Conversion propre des indices en string pour la comparaison
+                    valid_indices = anchor_df["_parent_index"].apply(lambda x: str(x).split(".")[0]).unique().tolist()
                 else:
                     valid_indices = []
-                site_main_df = main_df[main_df["_index"].isin(valid_indices)]
+                
+                # Filtrage du main avec conversion temporaire pour le match
+                if "_index" in main_df.columns:
+                    site_main_df = main_df[main_df["_index"].apply(lambda x: str(x).split(".")[0]).isin(valid_indices)]
+                else:
+                    site_main_df = pd.DataFrame(columns=main_df.columns)
+                
                 # On ajoute la colonne virtuelle pour le filtrage ultérieur
                 site_main_df = site_main_df.copy()
                 site_main_df[pivot_column] = site
