@@ -16,9 +16,8 @@ import type {
 const REQUIRED_MAIN_COLUMNS = ['_id', '_index', '_uuid', '_submission_time', '_parent_index'];
 
 export const normalizeCsvEncoding = (separator: string, encoding: string) => {
-  const normalized = (encoding || 'utf-8-sig').toLowerCase().replace('_', '-');
-  if (separator === ';' && normalized === 'utf-8') return 'utf-8-sig';
-  return encoding || 'utf-8-sig';
+  // On force toujours UTF-8 avec BOM pour une compatibilité Excel maximale
+  return 'utf-8-sig';
 };
 
 export const useExportSelection = () => {
@@ -38,9 +37,9 @@ export const useExportSelection = () => {
   const [pivot, setPivot] = useState('');
   const [loadingAccountIds, setLoadingAccountIds] = useState<number[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx');
-  const [csvSeparator, setCsvSeparator] = useState<CsvSeparator>(';');
-  const [csvEncoding, setCsvEncoding] = useState<CsvEncoding>('utf-8-sig');
-  const [csvQuotechar, setCsvQuotechar] = useState('"');
+  const [csvSeparator] = useState<CsvSeparator>(';');
+  const [csvEncoding] = useState<CsvEncoding>('utf-8-sig');
+  const [csvQuotechar] = useState('"');
 
   const mainSheet = formStructure?.sheets[0];
   const fallbackMainSheetColumns = mainSheet?.columns ?? [];
@@ -218,9 +217,6 @@ export const useExportSelection = () => {
         const savedSeparator = prefs.sep || ';';
         const savedEncoding = normalizeCsvEncoding(savedSeparator, prefs.enc || 'utf-8-sig') as CsvEncoding;
         if (prefs.format) setExportFormat(prefs.format);
-        if (prefs.sep) setCsvSeparator(savedSeparator);
-        setCsvEncoding(savedEncoding);
-        if (prefs.quote) setCsvQuotechar(prefs.quote);
       } catch {
         localStorage.removeItem('kobo_csv_prefs');
       }
@@ -229,9 +225,9 @@ export const useExportSelection = () => {
 
   useEffect(() => {
     localStorage.setItem('kobo_csv_prefs', JSON.stringify({
-      format: exportFormat, sep: csvSeparator, enc: csvEncoding, quote: csvQuotechar,
+      format: exportFormat,
     }));
-  }, [exportFormat, csvSeparator, csvEncoding, csvQuotechar]);
+  }, [exportFormat]);
 
   useEffect(() => {
     if (pivot && selectedFormName && selectedAccountIds.length > 0) {
@@ -307,9 +303,6 @@ export const useExportSelection = () => {
     setSelectedColumns,
     setPivot,
     setExportFormat,
-    setCsvSeparator,
-    setCsvEncoding,
-    setCsvQuotechar,
   };
 };
 

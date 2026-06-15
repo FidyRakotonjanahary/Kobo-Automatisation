@@ -17,28 +17,8 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => (
       <div className="space-y-3">
         <input className="input-linear" placeholder="Dossier Drive (ID)" value={form.driveFolderId} onChange={e => form.setDriveFolderId(e.target.value)} />
         {form.exportFormat === 'csv' && (
-          <div className="flex gap-2 p-1.5 bg-gray-50 rounded-lg border border-gray-100">
-            <select
-              className="flex-1 bg-transparent border-none text-[10px] font-bold text-gray-600 focus:ring-0"
-              value={form.csvSeparator}
-              onChange={e => {
-                const nextSeparator = e.target.value as CsvSeparator;
-                form.setCsvSeparator(nextSeparator);
-                form.setCsvEncoding(prev => normalizeCsvEncoding(nextSeparator, prev) as CsvEncoding);
-              }}
-            >
-              <option value=";">Point-virgule</option>
-              <option value=",">Virgule</option>
-            </select>
-            <select
-              className="flex-1 bg-transparent border-none text-[10px] font-bold text-gray-600 focus:ring-0"
-              value={form.csvEncoding}
-              onChange={e => form.setCsvEncoding(normalizeCsvEncoding(form.csvSeparator, e.target.value) as CsvEncoding)}
-            >
-              <option value="utf-8-sig">UTF-8 BOM</option>
-              <option value="utf-8">UTF-8 simple</option>
-              <option value="windows-1252">Windows-1252</option>
-            </select>
+          <div className="flex items-center justify-center gap-2 p-1.5 bg-indigo-50/50 rounded-lg border border-indigo-100/50">
+            <span className="text-[9px] font-bold text-indigo-600/70 uppercase tracking-wider">CSV : Point-virgule + UTF-8 BOM</span>
           </div>
         )}
       </div>
