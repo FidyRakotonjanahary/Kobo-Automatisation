@@ -27,51 +27,57 @@ Une solution complète pour automatiser l'extraction, la fusion et la migration 
 
 ---
 
-## 🛠️ Installation
+## ▶️ Démarrage rapide (Windows)
 
-### Prérequis
+> **C'est la méthode recommandée.** Aucune commande à taper.
 
-- **Python** 3.10+
-- **Node.js** 18+
-- Un fichier `client_secrets.json` (Google OAuth credentials) placé dans le dossier `backend/`.
+### Prérequis (à installer une seule fois)
 
-### Configuration Backend
+| Logiciel                  | Version minimale | Lien                                                                                 |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------------------ |
+| **Python**                | 3.11+            | [python.org](https://www.python.org/downloads/) — ⚠️ cocher **"Add Python to PATH"** |
+| **Node.js**               | 20+              | [nodejs.org](https://nodejs.org/)                                                    |
+| **`client_secrets.json`** | —                | Fichier Google OAuth à placer dans `backend/`                                        |
 
-1. Naviguez dans le dossier backend :
-   ```bash
-   cd backend
-   ```
-2. Créez et activez un environnement virtuel :
-   ```bash
-   python -m venv venv
-   # Sur Windows (PowerShell) :
-   .\venv\Scripts\Activate.ps1
-   # Sur Linux/macOS :
-   source venv/bin/activate
-   ```
-3. Installez les dépendances :
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Lancez le serveur :
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+### Lancement
 
-### Configuration Frontend
+1. **Double-cliquer sur `Lancer.bat`** dans le dossier du projet.
+2. Le script vérifie automatiquement les prérequis, installe les dépendances si nécessaire, démarre les serveurs et **ouvre le navigateur** sur `http://localhost:3001`.
 
-1. Naviguez dans le dossier frontend :
-   ```bash
-   cd ../frontend
-   ```
-2. Installez les packages :
-   ```bash
-   npm install
-   ```
-3. Lancez l'application en mode développement :
-   ```bash
-   npm run dev
-   ```
+> 💡 À la **première utilisation**, l'installation des dépendances peut prendre 1 à 2 minutes. Les fois suivantes, le démarrage est immédiat.
+
+### Arrêt
+
+- **Double-cliquer sur `Arreter.bat`** pour fermer proprement les serveurs backend et frontend.
+
+---
+
+## 🛠️ Installation manuelle (avancé)
+
+### Backend
+
+```bash
+cd backend
+python -m venv venv
+
+# Sur Windows (PowerShell) :
+.\venv\Scripts\Activate.ps1
+# Sur Linux/macOS :
+source venv/bin/activate
+
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Puis ouvrir : **http://localhost:3001**
 
 ---
 
@@ -92,6 +98,7 @@ Une solution complète pour automatiser l'extraction, la fusion et la migration 
 
 ## ⚠️ Notes Techniques
 
+- **Portabilité du venv** : L'environnement virtuel Python n'est **pas portable**. Si vous déplacez le dossier projet, supprimez `backend/venv/` et relancez `Lancer.bat` — il le recrée automatiquement.
 - **Scopes OAuth** : L'application requiert `drive.file` et `spreadsheets`.
 - **Environnement Dev** : En local, `OAUTHLIB_INSECURE_TRANSPORT` est activé pour autoriser le flux OAuth via HTTP.
 - **Base de Données** : Utilise SQLite (`kobo_automation.db`) pour stocker localement les configurations de comptes et les logs.

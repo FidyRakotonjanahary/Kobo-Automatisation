@@ -1,7 +1,33 @@
-# Terminal 1 - Backend
-cd "C:\Users\hp\Desktop\Automatisation Kobo\backend"
-.\venv\Scripts\Activate.ps1; uvicorn app.main:app --reload
+═══════════════════════════════════════════════
+   KOBO AUTOMATION SUITE - Mode d'emploi
+═══════════════════════════════════════════════
 
-# Terminal 2 - Frontend
-cd "C:\Users\hp\Desktop\Automatisation Kobo\frontend"
-npm run dev
+▶ DÉMARRER l'application :
+   Double-cliquer sur  →  Lancer.bat
+
+▶ ARRÊTER l'application :
+   Double-cliquer sur  →  Arreter.bat
+
+═══════════════════════════════════════════════
+   Prérequis (à installer une seule fois)
+═══════════════════════════════════════════════
+
+1. Python 3.11+  → https://www.python.org/downloads/
+   ⚠ Cocher "Add Python to PATH" lors de l'installation
+
+2. Node.js 20+   → https://nodejs.org/
+
+═══════════════════════════════════════════════
+   Méthode manuelle (PowerShell)
+═══════════════════════════════════════════════
+
+Terminal 1 (Backend) :
+   cd backend
+   .\venv\Scripts\Activate.ps1
+   uvicorn app.main:app --reload
+
+Terminal 2 (Frontend) :
+   cd frontend
+   npm run dev
+
+Puis ouvrir : http://localhost:3001
