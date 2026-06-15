@@ -280,12 +280,23 @@ class ExportEngine:
         for site in unique_sites:
             if filter_sites and site not in filter_sites:
                 continue
-            site_main_df = main_df[main_df[pivot_column] == site]
-            valid_indices = (
-                site_main_df["_index"].tolist()
-                if "_index" in site_main_df.columns
-                else []
-            )
+
+            # Filtrage intelligent selon l'onglet source du pivot
+            if matched_pivot_col in main_df.columns:
+                # Pivot classique dans l'onglet principal
+                site_main_df = main_df[main_df[matched_pivot_col] == site]
+                valid_indices = site_main_df["_index"].tolist() if "_index" in site_main_df.columns else []
+            else:
+                # Pivot dans un onglet enfant (Repeat Group)
+                anchor_df = source_df[source_df[matched_pivot_col] == site]
+                if "_parent_index" in anchor_df.columns:
+                    valid_indices = anchor_df["_parent_index"].unique().tolist()
+                else:
+                    valid_indices = []
+                site_main_df = main_df[main_df["_index"].isin(valid_indices)]
+                # On ajoute la colonne virtuelle pour le filtrage ultérieur
+                site_main_df = site_main_df.copy()
+                site_main_df[pivot_column] = site
 
             # Filtrage colonnes
             # On ne filtre QUE si l'utilisateur a envoyé une liste restreinte. 
