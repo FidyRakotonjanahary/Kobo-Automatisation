@@ -242,13 +242,16 @@ class ExportEngine:
             if source_df is None:
                 raise ValueError(f"La colonne '{pivot_column}' est introuvable dans le fichier Excel.")
 
-            # Nettoyage des valeurs de pivot sur la colonne RÉELLE trouvée
-            source_df[matched_pivot_col] = (
-                source_df[matched_pivot_col]
-                .fillna("NON_DEFINI")
-                .apply(str)
-                .apply(TextNormalizer.normalize)
-            )
+            # Normalisation GLOBALE de la colonne pivot dans tous les onglets pour éviter les oublis liés à la casse
+            for s_df in dfs.values():
+                if matched_pivot_col in s_df.columns:
+                    s_df[matched_pivot_col] = (
+                        s_df[matched_pivot_col]
+                        .fillna("NON_DEFINI")
+                        .apply(str)
+                        .apply(TextNormalizer.normalize)
+                    )
+            
             unique_sites = sorted(source_df[matched_pivot_col].unique())
             # On met à jour le nom du pivot pour la suite du script avec le vrai nom trouvé
             pivot_column = matched_pivot_col
