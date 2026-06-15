@@ -86,7 +86,16 @@ class ExportEngine:
         sheet_df: pd.DataFrame, site_main_df: pd.DataFrame, valid_indices: List[Any]
     ) -> pd.DataFrame:
         if "_parent_index" in sheet_df.columns and valid_indices:
-            return sheet_df[sheet_df["_parent_index"].isin(valid_indices)].copy()
+            filtered = sheet_df[sheet_df["_parent_index"].isin(valid_indices)].copy()
+            if not filtered.empty:
+                return filtered
+            # Fallback : essayer via str si les types ne correspondaient pas
+            valid_indices_str = [str(v) for v in valid_indices]
+            filtered_str = sheet_df[
+                sheet_df["_parent_index"].astype(str).isin(valid_indices_str)
+            ].copy()
+            if not filtered_str.empty:
+                return filtered_str
 
         relation_pairs = [
             ("_submission__uuid", "_uuid"),
@@ -102,7 +111,11 @@ class ExportEngine:
                     sheet_df[child_col].astype(str).isin(parent_values)
                 ].copy()
 
-        logger.warning("Impossible de relier l'onglet secondaire au site; export vide.")
+        logger.warning(
+            "Impossible de relier l'onglet secondaire au site (colonnes testées: "
+            "_parent_index, _submission__uuid, _submission_uuid, _parent_uuid, "
+            "_submission__id, _submission_id). Onglet exporté vide."
+        )
         return sheet_df.iloc[0:0].copy()
 
     @staticmethod
@@ -317,13 +330,18 @@ class ExportEngine:
                             site_child_df = self._filter_related_sheet_for_site(
                                 child_df, site_main_df, valid_indices
                             )
-                            if not site_child_df.empty:
-                                self._format_kobo_index_columns(
-                                    site_child_df
-                                ).to_excel(
-                                    writer, sheet_name=s_name[:31], index=False
+                            if site_child_df.empty:
+                                logger.warning(
+                                    "Onglet '%s' vide pour le site '%s' "
+                                    "(0 ligne reliée). Onglet inclus quand même.",
+                                    s_name, site,
                                 )
-                                sheets_written += 1
+                            self._format_kobo_index_columns(
+                                site_child_df
+                            ).to_excel(
+                                writer, sheet_name=s_name[:31], index=False
+                            )
+                            sheets_written += 1
 
                         # Guarantee at least one sheet to avoid corrupt XLSX
                         if sheets_written == 0:

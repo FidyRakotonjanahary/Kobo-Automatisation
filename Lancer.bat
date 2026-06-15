@@ -92,11 +92,11 @@ echo.
 
 start "Kobo - Backend (FastAPI)" "!ROOT!\_start_backend.bat"
 
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul 2>&1
 
 start "Kobo - Frontend (Vite)" "!ROOT!\_start_frontend.bat"
 
-timeout /t 4 /nobreak >nul
+ping -n 5 127.0.0.1 >nul 2>&1
 
 echo  Ouverture du navigateur...
 start "" "http://localhost:3001"
@@ -110,5 +110,5 @@ echo   ou fermer les fenetres Backend et Frontend.
 echo  ============================================================
 echo.
 endlocal
-timeout /t 5 /nobreak >nul
+ping -n 6 127.0.0.1 >nul 2>&1
 exit
