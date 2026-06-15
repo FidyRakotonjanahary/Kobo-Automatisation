@@ -19,7 +19,7 @@ class KoboService:
         "type": "xls",
         "lang": "French (fr)",
         "hierarchy_in_labels": False,
-        "multiple_select": "summary",
+        "multiple_select": "both",
         "fields_from_all_versions": True,
         "include_media_url": True,
         "group_sep": "/",
