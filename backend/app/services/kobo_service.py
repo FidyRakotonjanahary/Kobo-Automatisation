@@ -17,7 +17,7 @@ logger = logging.getLogger("kobo_service")
 class KoboService:
     XLS_EXPORT_PAYLOAD = {
         "type": "xls",
-        "lang": "_default",
+        "lang": "French (fr)",
         "hierarchy_in_labels": False,
         "multiple_select": "summary",
         "fields_from_all_versions": True,
@@ -104,8 +104,8 @@ class KoboService:
 
                 survey = asset.get("content", {}).get("survey", [])
 
-                # Onglet principal par défaut
-                main_sheet_name = asset.get("name", "survey")
+                # Onglet principal par défaut (limité à 31 chars comme Excel)
+                main_sheet_name = asset.get("name", "survey")[:31]
                 sheets = [{"name": main_sheet_name, "columns": []}]
 
                 # Pile pour gérer les onglets imbriqués (Repeat Groups)
@@ -137,12 +137,17 @@ class KoboService:
                         continue
 
                     # Déterminer le nom de la colonne (Label ou Name)
-                    label = field.get("label")
-                    if isinstance(label, list) and label:
-                        col = str(label[0]).strip()
-                    elif isinstance(label, str) and label.strip():
-                        col = label.strip()
-                    else:
+                    col = None
+                    label_data = field.get("label")
+                    if isinstance(label_data, list) and label_data:
+                        col = str(label_data[0]).strip()
+                    elif isinstance(label_data, dict):
+                        # Priorité au français
+                        col = label_data.get("French (fr)") or label_data.get("French") or next(iter(label_data.values()), None)
+                    elif isinstance(label_data, str) and label_data.strip():
+                        col = label_data.strip()
+                    
+                    if not col:
                         col = field.get("name") or field.get("$autoname", "")
 
                     if col:

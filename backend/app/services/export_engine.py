@@ -315,8 +315,13 @@ class ExportEngine:
                     # Export Excel
                     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
                         sheets_written = 0
+                        # Normalisation pour la comparaison
+                        normalized_selected = [s.strip().lower() for s in (selected_sheets or [])]
+                        
                         main_sheet_name = sheet_names[0]
-                        if not selected_sheets or main_sheet_name in selected_sheets:
+                        is_main_selected = not selected_sheets or main_sheet_name.strip().lower() in normalized_selected
+                        
+                        if is_main_selected:
                             self._format_kobo_index_columns(site_export_main).to_excel(
                                 writer, sheet_name=main_sheet_name[:31], index=False
                             )
@@ -324,7 +329,7 @@ class ExportEngine:
 
                         # Repeat Groups / child sheets
                         for s_name in sheet_names[1:]:
-                            if selected_sheets and s_name not in selected_sheets:
+                            if selected_sheets and s_name.strip().lower() not in normalized_selected:
                                 continue
                             child_df = dfs[s_name]
                             site_child_df = self._filter_related_sheet_for_site(
