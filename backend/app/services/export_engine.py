@@ -280,13 +280,17 @@ class ExportEngine:
                 continue
 
             # Filtrage intelligent selon l'onglet source du pivot
+            # On utilise une comparaison robuste qui ignore les différences '_' vs ' '
+            def robust_match(val):
+                return TextNormalizer.normalize(str(val)) == site
+
             if matched_pivot_col in main_df.columns:
                 # Pivot classique dans l'onglet principal
-                site_main_df = main_df[main_df[matched_pivot_col] == site]
+                site_main_df = main_df[main_df[matched_pivot_col].apply(robust_match)]
                 valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
             else:
                 # Pivot dans un onglet enfant (Repeat Group)
-                anchor_df = source_df[source_df[matched_pivot_col] == site]
+                anchor_df = source_df[source_df[matched_pivot_col].apply(robust_match)]
                 if "_parent_index" in anchor_df.columns:
                     # Conversion propre des indices en string pour la comparaison
                     valid_indices = anchor_df["_parent_index"].apply(lambda x: str(x).split(".")[0]).unique().tolist()
