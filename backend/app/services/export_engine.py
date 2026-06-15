@@ -332,27 +332,28 @@ class ExportEngine:
 
             try:
                 if export_format == "csv":
-                    # Déterminer quel onglet exporter en CSV (avec matching robuste)
+                    # Déterminer quel onglet exporter en CSV (avec matching ULTRA-ROBUSTE)
                     selected_name = selected_sheets[0] if selected_sheets else sheet_names[0]
-                    selected_norm = selected_name.strip().lower()
+                    # On nettoie le nom demandé par l'utilisateur
+                    selected_clean = TextNormalizer.normalize(selected_name)
                     
                     csv_sheet_name = None
-                    # 1. Match exact ou normalisé
+                    # On compare avec tous les onglets du fichier, eux aussi nettoyés
                     for s_name in sheet_names:
-                        if s_name.strip().lower() == selected_norm:
+                        if TextNormalizer.normalize(s_name) == selected_clean:
                             csv_sheet_name = s_name
                             break
                     
-                    # 2. Match par préfixe (si tronqué par Excel à 31 chars)
+                    # Si pas de match exact nettoyé, on tente le match par préfixe nettoyé (troncature Excel)
                     if not csv_sheet_name:
                         for s_name in sheet_names:
-                            s_norm = s_name.strip().lower()
-                            if selected_norm.startswith(s_norm[:25]) or s_norm.startswith(selected_norm[:25]):
+                            s_clean = TextNormalizer.normalize(s_name)
+                            if selected_clean.startswith(s_clean[:20]) or s_clean.startswith(selected_clean[:20]):
                                 csv_sheet_name = s_name
                                 break
                     
                     if not csv_sheet_name:
-                        raise ValueError(f"L'onglet CSV '{selected_name}' est introuvable dans le fichier.")
+                        raise ValueError(f"L'onglet CSV '{selected_name}' est introuvable. Onglets dispo: {', '.join(sheet_names)}")
 
                     if csv_sheet_name == sheet_names[0]:
                         csv_export_df = self._format_kobo_index_columns(site_export_main)
