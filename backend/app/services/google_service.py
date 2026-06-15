@@ -76,8 +76,12 @@ class GoogleService:
             if "quota" in reason.lower() or "limit" in reason.lower():
                 raise GoogleQuotaError(detail=reason)
             raise GooglePermissionError(detail=f"Erreur 403 (Forbidden): {reason} - Vérifiez que le compte a bien accès au fichier.")
+        if status == 400:
+            if "office file" in details.lower() or "office file" in reason.lower():
+                raise Exception("Accès refusé : Le fichier est au format Excel (.xlsx). Veuillez l'ouvrir dans Google Drive et faire 'Fichier > Enregistrer au format Google Sheets' pour pouvoir l'utiliser.")
+            raise Exception(f"Erreur 400 (Bad Request): {reason} - Vérifiez les paramètres (ID du fichier, nom de l'onglet).")
         if status == 404:
-            raise Exception(f"Dossier ou fichier Drive introuvable (404). ID vérifié : {reason}")
+            raise Exception(f"Dossier ou fichier Drive introuvable (404). Vérifiez l'ID : {spreadsheet_id if 'spreadsheet_id' in locals() else 'inconnu'}")
         raise Exception(f"Erreur Google API ({status}): {reason}")
 
     def upload_file(

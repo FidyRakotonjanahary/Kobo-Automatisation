@@ -219,20 +219,35 @@ class ExportEngine:
         )
         main_df = dfs[sheet_names[0]].copy()
 
-        # Si pas de pivot, on exporte tout dans un seul fichier
-        if not pivot_column:
-            unique_sites = ["Dataset_Complet"]
-            pivot_column = "Export_Type"
-            main_df[pivot_column] = "Dataset_Complet"
-        else:
-            if pivot_column not in main_df.columns:
-                raise ValueError(f"Colonne '{pivot_column}' introuvable.")
-            main_df[pivot_column] = (
-                main_df[pivot_column]
+        # Recherche intelligente de la colonne pivot dans tous les onglets
+        source_df = None
+        if pivot_column:
+            # D'abord dans l'onglet principal
+            if pivot_column in main_df.columns:
+                source_df = main_df
+            else:
+                # Sinon on cherche dans les autres
+                for s_name, s_df in dfs.items():
+                    if pivot_column in s_df.columns:
+                        source_df = s_df
+                        logger.info(f"Colonne pivot '{pivot_column}' trouvée dans l'onglet '{s_name}'")
+                        break
+            
+            if source_df is None:
+                raise ValueError(f"Colonne '{pivot_column}' introuvable dans aucun des onglets.")
+
+            # Nettoyage des valeurs de pivot
+            source_df[pivot_column] = (
+                source_df[pivot_column]
                 .fillna("NON_DEFINI")
                 .apply(TextNormalizer.normalize)
             )
-            unique_sites = sorted(main_df[pivot_column].unique())
+            unique_sites = sorted(source_df[pivot_column].unique())
+        else:
+            unique_sites = ["Dataset_Complet"]
+            pivot_column = "Export_Type"
+            main_df[pivot_column] = "Dataset_Complet"
+            source_df = main_df
 
         form_folder = os.path.join(
             self.output_base_dir, TextNormalizer.normalize(form_name)

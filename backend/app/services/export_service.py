@@ -153,22 +153,33 @@ class ExportService:
             if not sheets:
                 raise ValueError("Le fichier Excel récupéré est vide.")
             
-            # Utiliser le premier onglet par défaut (source principale)
-            main_df = merged_dfs[sheets[0]]
-            columns = [str(column) for column in main_df.columns]
+            # Scanner tous les onglets pour trouver toutes les colonnes possibles
+            all_columns_set = set()
+            for sheet_df in merged_dfs.values():
+                all_columns_set.update([str(c) for c in sheet_df.columns])
+            columns = sorted(list(all_columns_set))
+
             sites = []
             if req.pivot_column:
-                # Recherche robuste de la colonne pivot (insensible casse/espaces/underscores)
                 target_norm = req.pivot_column.replace("_", " ").strip().lower()
-                matched_col = None
-                for col in main_df.columns:
-                    if str(col).replace("_", " ").strip().lower() == target_norm:
-                        matched_col = col
-                        break
                 
-                if matched_col:
-                    unique_vals = main_df[matched_col].dropna().unique()
-                    sites = sorted([TextNormalizer.normalize(str(v)) for v in unique_vals])
+                # Chercher la colonne et ses valeurs dans TOUS les onglets
+                found_values = set()
+                for sheet_df in merged_dfs.values():
+                    matched_col = None
+                    for col in sheet_df.columns:
+                        if str(col).replace("_", " ").strip().lower() == target_norm:
+                            matched_col = col
+                            break
+                    if matched_col:
+                        # On normalise CHAQUE valeur avant de l'ajouter au set
+                        for v in sheet_df[matched_col].dropna().unique():
+                            norm_v = TextNormalizer.normalize(str(v))
+                            if norm_v:
+                                found_values.add(norm_v)
+                
+                if found_values:
+                    sites = sorted(list(found_values))
             
             return PreviewSitesResult(sites=sites, sheets=sheets, columns=columns)
         except Exception as e:

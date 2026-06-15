@@ -74,10 +74,8 @@ export const useExportActions = (selection: ExportSelectionState) => {
       toast.error("S\u00e9lectionnez au moins un onglet.");
       return;
     }
-    if (selection.exportFormat === 'csv' && selection.selectedSheets.length > 1) {
-      toast.error("Le format CSV ne supporte qu'un seul onglet.");
-      return;
-    }
+    // En mode CSV, si plusieurs onglets sont présents, on prendra de toute façon le premier dans le backend.
+    // On retire donc le blocage strict ici pour plus de souplesse.
 
     setResult(null);
     const accountForms = selection.buildAccountForms();
