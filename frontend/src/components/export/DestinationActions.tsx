@@ -29,14 +29,24 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => (
             <span className="uppercase tracking-wider">Aper{"\u00e7"}u</span>
           </button>
         )}
-        <button
-          onClick={form.handleRun}
-          disabled={form.exportMutation.isPending || form.selectedSheets.length === 0}
-          className={`btn-primary-linear !h-10 w-full flex items-center justify-center gap-2 ${form.exportMutation.isPending ? 'opacity-60 cursor-not-allowed' : ''}`}
-        >
-          {form.exportMutation.isPending ? <RefreshCw className="animate-spin text-white" size={14} /> : <Send size={14} className="text-white" />}
-          <span className="text-[11px] font-bold text-white uppercase tracking-[0.1em]">Lancer l'Export</span>
-        </button>
+        {form.exportMutation.isPending ? (
+          <button
+            onClick={form.handleCancel}
+            className="btn-primary-linear !h-10 w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 border-red-500 shadow-red-500/20 active:translate-y-0.5 animate-pulse"
+          >
+            <RefreshCw className="animate-spin text-white" size={14} />
+            <span className="text-[11px] font-bold text-white uppercase tracking-[0.1em]">ARR\u00caTER</span>
+          </button>
+        ) : (
+          <button
+            onClick={form.handleRun}
+            disabled={form.selectedSheets.length === 0}
+            className="btn-primary-linear !h-10 w-full flex items-center justify-center gap-2"
+          >
+            <Send size={14} className="text-white" />
+            <span className="text-[11px] font-bold text-white uppercase tracking-[0.1em]">Lancer l'Export</span>
+          </button>
+        )}
       </div>
     </div>
   </div>

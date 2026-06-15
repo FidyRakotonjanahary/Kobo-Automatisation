@@ -32,6 +32,7 @@ export interface ExportRequest {
   csv_separator: CsvSeparator;
   csv_encoding: CsvEncoding;
   csv_quotechar: string;
+  task_id?: string;
 }
 
 export interface PreviewRequest {

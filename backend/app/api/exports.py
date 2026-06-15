@@ -10,6 +10,7 @@ from app.schemas.export import (
     PreviewResult,
     PreviewSitesResult,
 )
+from app.core.task_monitor import task_monitor
 from app.services.export_service import ExportService
 
 router = APIRouter()
@@ -19,6 +20,12 @@ router = APIRouter()
 async def run_export(req: ExportRequest, db: AsyncSession = Depends(get_db)):
     service = ExportService(db)
     return await service.run_export(req)
+
+
+@router.post("/cancel")
+async def cancel_export(task_id: str):
+    task_monitor.cancel_task(task_id)
+    return {"status": "request_sent"}
 
 
 @router.post("/preview", response_model=PreviewResult)

@@ -77,17 +77,36 @@ class MediaEngine:
 
         global_stats = {"success": 0, "failed": 0}
         for s_name in target_sheets:
-            report(f"📂 Traitement de l'onglet: {s_name}")
+            # --- POINT D'ARRÊT ---
             if check_stop and check_stop():
                 report("🛑 Migration arrêtée par l'utilisateur.")
                 break
             
-            # Utiliser le dossier spécifique si fourni, sinon le dossier par défaut
-            target_folder = drive_folder_id
-            if sheet_folder_mapping and s_name in sheet_folder_mapping:
-                target_folder = sheet_folder_mapping[s_name]
+            # Détermination de la destination : mapping spécifique > dossier par défaut
+            target_folder = None
+            
+            # Recherche flexible dans le mapping (insensible à la casse)
+            normalized_s_name = s_name.strip().lower()
+            specific_id = None
+            if sheet_folder_mapping:
+                for mapping_key, folder_id in sheet_folder_mapping.items():
+                    if mapping_key.strip().lower() == normalized_s_name:
+                        specific_id = folder_id
+                        break
+            
+            if specific_id:
+                target_folder = specific_id
                 report(f"📁 Dossier spécifique détecté pour '{s_name}' : {target_folder}")
+            elif drive_folder_id:
+                target_folder = drive_folder_id
+                report(f"📂 Utilisation du dossier principal pour l'onglet: {s_name}")
+            
+            # Si aucune destination n'est trouvée (pas de dossier principal ET pas de mapping), on ignore l'onglet
+            if not target_folder:
+                report(f"⏭️ Onglet '{s_name}' ignoré : aucune destination Drive configurée.")
+                continue
 
+            report(f"📂 Traitement de l'onglet: {s_name}")
             sheet_stats = await self._migrate_single_tab(
                 spreadsheet_id, s_name, target_folder, on_progress, check_stop
             )

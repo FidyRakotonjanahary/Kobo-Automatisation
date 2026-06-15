@@ -21,15 +21,22 @@ export const useExportActions = (selection: ExportSelectionState) => {
   const [driveFolderId, setDriveFolderId] = useState('');
   const [csvPreview, setCsvPreview] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
   const exportMutation = useMutation<AxiosResponse<ExportResult>, AxiosError<ApiErrorBody>, ExportRequest>({
     mutationFn: (data) => api.post<ExportResult>('/exports/run', data),
     onSuccess: (res) => {
       setResult(res.data);
-      toast.success('Export termin\u00e9 avec succ\u00e8s');
+      if (res.data.message.includes('annul')) {
+        toast.error('Exportation interrompue.');
+      } else {
+        toast.success('Export terminé avec succès');
+      }
+      setCurrentTaskId(null);
     },
     onError: (err) => {
       toast.error(err.response?.data?.message || "Erreur pendant l'export.");
+      setCurrentTaskId(null);
     },
   });
 
@@ -81,6 +88,9 @@ export const useExportActions = (selection: ExportSelectionState) => {
     const accountForms = selection.buildAccountForms();
     const requestEncoding = normalizeCsvEncoding(selection.csvSeparator, selection.csvEncoding);
 
+    const taskId = `task_${Date.now()}`;
+    setCurrentTaskId(taskId);
+
     exportMutation.mutate({
       account_forms: accountForms,
       form_name: selection.selectedFormName,
@@ -93,7 +103,18 @@ export const useExportActions = (selection: ExportSelectionState) => {
       csv_separator: selection.csvSeparator,
       csv_encoding: requestEncoding as ExportRequest['csv_encoding'],
       csv_quotechar: selection.csvQuotechar,
+      task_id: taskId,
     });
+  };
+
+  const handleCancel = async () => {
+    if (!currentTaskId) return;
+    try {
+      await api.post(`/exports/cancel`, null, { params: { task_id: currentTaskId } });
+      toast("Demande d'arrêt envoyée...", { icon: '🛑' });
+    } catch {
+      toast.error("Impossible d'arrêter l'export.");
+    }
   };
 
   return {
@@ -105,6 +126,7 @@ export const useExportActions = (selection: ExportSelectionState) => {
     exportMutation,
     handlePreview,
     handleRun,
+    handleCancel,
     setDriveFolderId,
     setCsvPreview,
   };

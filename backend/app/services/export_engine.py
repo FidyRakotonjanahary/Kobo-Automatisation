@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from app.core.task_monitor import task_monitor
 from app.utils.normalizer import TextNormalizer
 from app.utils.text_encoding import repair_dataframe_columns
 
@@ -193,6 +194,7 @@ class ExportEngine:
         selected_sheets: Optional[List[str]] = None,
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
+        task_id: Optional[str] = None,
     ):
 
         logger.info(
@@ -207,21 +209,14 @@ class ExportEngine:
         if not sheet_names:
             raise ValueError("Le fichier source est vide.")
 
-        csv_sheet_name = (
-            self._resolve_csv_sheet(sheet_names, selected_sheets)
-            if export_format == "csv"
-            else sheet_names[0]
-        )
         main_df = dfs[sheet_names[0]].copy()
-
-        # Recherche intelligente et robuste de la colonne pivot
-        source_df = None
+        generated_files = []
+        unique_sites = []
         matched_pivot_col = None
-        
+        source_df = None
+
         if pivot_column:
             target_norm = pivot_column.replace("_", " ").strip().lower()
-            
-            # On parcourt d'abord l'onglet principal, puis les autres
             search_order = [sheet_names[0]] + [s for s in sheet_names if s != sheet_names[0]]
             
             for s_name in search_order:
@@ -234,23 +229,21 @@ class ExportEngine:
                 if source_df is not None:
                     break
 
-            if source_df is None:
-                raise ValueError(f"La colonne '{pivot_column}' est introuvable dans le fichier Excel.")
+            if source_df is not None:
+                for s_df in dfs.values():
+                    if matched_pivot_col in s_df.columns:
+                        s_df[matched_pivot_col] = (
+                            s_df[matched_pivot_col]
+                            .fillna("NON_DEFINI")
+                            .apply(str)
+                            .apply(TextNormalizer.normalize)
+                        )
+                unique_sites = sorted(source_df[matched_pivot_col].unique())
+        
+        if filter_sites:
+            unique_sites = [s for s in unique_sites if s in filter_sites]
 
-            # Normalisation GLOBALE de la colonne pivot dans tous les onglets pour éviter les oublis liés à la casse
-            for s_df in dfs.values():
-                if matched_pivot_col in s_df.columns:
-                    s_df[matched_pivot_col] = (
-                        s_df[matched_pivot_col]
-                        .fillna("NON_DEFINI")
-                        .apply(str)
-                        .apply(TextNormalizer.normalize)
-                    )
-            
-            unique_sites = sorted(source_df[matched_pivot_col].unique())
-            # On met à jour le nom du pivot pour la suite du script avec le vrai nom trouvé
-            pivot_column = matched_pivot_col
-        else:
+        if not unique_sites:
             unique_sites = ["Dataset_Complet"]
             pivot_column = "Export_Type"
             main_df[pivot_column] = "Dataset_Complet"
@@ -276,6 +269,11 @@ class ExportEngine:
             csv_config.update(csv_params)
 
         for site in unique_sites:
+            # --- POINT D'ARRÊT ---
+            if task_id and task_monitor.is_cancelled(task_id):
+                logger.warning(f"Arr\u00eat de l'exportation demand\u00e9 pour {task_id}")
+                break
+
             if filter_sites and site not in filter_sites:
                 continue
 

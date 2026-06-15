@@ -21,6 +21,7 @@ class ExportRequest(BaseModel):
     csv_separator: str = ";"
     csv_encoding: str = "utf-8-sig"
     csv_quotechar: str = '"'
+    task_id: Optional[str] = None
 
     @field_validator("drive_folder_id")
     @classmethod

@@ -1,7 +1,7 @@
 import io
 import logging
 import os
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 from fastapi import HTTPException
@@ -22,6 +22,7 @@ from app.schemas.export import (
 from app.services.export_engine import ExportEngine
 from app.services.google_service import GoogleService
 from app.services.kobo_service import KoboService
+from app.core.task_monitor import task_monitor
 from app.utils.normalizer import TextNormalizer
 from app.utils.text_encoding import repair_dataframe_columns
 
@@ -54,6 +55,9 @@ class ExportService:
         self.credential_repository = CredentialRepository(db)
 
     async def run_export(self, req: ExportRequest) -> ExportResult:
+        task_id = req.task_id or "legacy"
+        task_monitor.start_task(task_id)
+        
         cred_uid_pairs = await resolve_credential_pairs(
             self.credential_repository,
             req.account_forms,
@@ -75,6 +79,7 @@ class ExportService:
                     selected_sheets=req.selected_sheets,
                     export_format=req.export_format,
                     csv_params=csv_params,
+                    task_id=task_id,
                 )
             else:
                 merged_dfs = await KoboService.fetch_and_merge_exports_multi(
@@ -89,13 +94,18 @@ class ExportService:
                     selected_sheets=req.selected_sheets,
                     export_format=req.export_format,
                     csv_params=csv_params,
+                    task_id=task_id,
                 )
 
+            # Vérification après filtrage (avant upload)
+            if task_monitor.is_cancelled(task_id):
+                return ExportResult(status="success", message="Exportation annul\u00e9e par l'utilisateur.", files=[], drive_success=0)
+
             files = self._export_files(raw_files)
-            drive_count = self._upload_to_drive(files, req)
+            drive_count = self._upload_to_drive(files, req, task_id)
             total_rows = sum(file.rows for file in files)
 
-            message = f"Export terminé : {len(files)} fichiers ({total_rows} lignes)."
+            message = f"Export termin\u00e9 : {len(files)} fichiers ({total_rows} lignes)."
             return ExportResult(
                 status="success",
                 message=message,
@@ -105,6 +115,8 @@ class ExportService:
         except Exception as e:
             logger.error(f"Frayeur export: {e}")
             raise AppException(str(e), 500)
+        finally:
+            task_monitor.stop_task(task_id)
 
     async def preview_export(self, req: ExportRequest) -> PreviewResult:
         cred_uid_pairs = await resolve_credential_pairs(
@@ -212,7 +224,7 @@ class ExportService:
         return await KoboService.fetch_and_merge_exports_multi(cred_uid_pairs)
 
     def _upload_to_drive(
-        self, files: List[ExportFileResult], req: ExportRequest
+        self, files: List[ExportFileResult], req: ExportRequest, task_id: Optional[str] = None
     ) -> int:
         drive_count = 0
         if not req.drive_folder_id:
@@ -220,6 +232,11 @@ class ExportService:
 
         google = GoogleService()
         for file in files:
+            # Vérifier l'annulation avant chaque fichier
+            if task_id and task_monitor.is_cancelled(task_id):
+                logger.warning(f"Upload Drive interrompu pour la t\u00e2che {task_id}")
+                break
+
             try:
                 file_name = os.path.basename(file.path)
                 google.upload_file(
