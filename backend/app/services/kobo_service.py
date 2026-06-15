@@ -163,40 +163,40 @@ class KoboService:
         retries=2, exceptions=(httpx.NetworkError, httpx.TimeoutException)
     )
     async def fetch_export_file(credential: Credential, asset_uid: str) -> bytes:
+        """
+        Déclenche toujours un NOUVEL export XLS sur Kobo pour garantir
+        des données complètes et à jour, puis attend et télécharge le résultat.
+        """
+        import asyncio
+
         password = security_manager.decrypt(credential.encrypted_password)
         async with httpx.AsyncClient(
             base_url=credential.base_url,
             auth=(credential.username, password),
             timeout=120.0,
         ) as client:
-            # 1. On cherche l'export le plus récent
-            res = await client.get(f"/api/v2/assets/{asset_uid}/exports/")
-            res.raise_for_status()
-            exports = res.json().get("results", [])
+            # 1. Toujours déclencher un nouvel export frais
+            logger.info(f"Déclenchement d'un nouvel export XLS pour {asset_uid}")
+            post_res = await client.post(
+                f"/api/v2/assets/{asset_uid}/exports/",
+                json=KoboService.XLS_EXPORT_PAYLOAD,
+            )
+            post_res.raise_for_status()
+            new_export_url = post_res.json().get("url", "")
 
-            # Garder les exports XLS valides et récents.
-            valid_exports = [
-                e for e in exports if KoboService._is_downloadable_xls_export(e)
-            ]
-            valid_exports.sort(key=lambda x: x.get("date_created", ""), reverse=True)
-
+            # 2. Polling : attendre que l'export soit prêt (max 90s)
             file_url = None
-            if valid_exports:
-                file_url = valid_exports[0]["result"]
-            else:
-                # 2. Aucun export trouvé ? On en lance un nouveau !
-                logger.info(f"Déclenchement d'un nouvel export XLS pour {asset_uid}")
-                post_res = await client.post(
-                    f"/api/v2/assets/{asset_uid}/exports/",
-                    json=KoboService.XLS_EXPORT_PAYLOAD,
-                )
-                post_res.raise_for_status()
-
-                # 3. Attente active (Polling) du résultat (max 60s)
-                import asyncio
-
-                for _ in range(18):  # 18 * 5s = 90s
-                    await asyncio.sleep(5)
+            for _ in range(18):  # 18 * 5s = 90s
+                await asyncio.sleep(5)
+                if new_export_url:
+                    # Vérifier l'état de CE nouvel export précisément
+                    check_res = await client.get(new_export_url)
+                    check_data = check_res.json()
+                    if check_data.get("result"):
+                        file_url = check_data["result"]
+                        break
+                else:
+                    # Fallback : prendre le plus récent dans la liste
                     check_res = await client.get(f"/api/v2/assets/{asset_uid}/exports/")
                     checks = check_res.json().get("results", [])
                     checks.sort(key=lambda x: x.get("date_created", ""), reverse=True)
@@ -210,7 +210,8 @@ class KoboService:
                     "Réessayez dans une minute."
                 )
 
-            # 4. Téléchargement du binaire
+            # 3. Téléchargement du binaire
+            logger.info(f"Téléchargement de l'export frais pour {asset_uid}")
             file_res = await client.get(file_url)
             file_res.raise_for_status()
             return file_res.content
