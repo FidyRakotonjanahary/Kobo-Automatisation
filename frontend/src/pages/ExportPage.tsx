@@ -30,9 +30,8 @@ const ExportPage = () => {
       <CsvPreviewPanel form={form} />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 pt-4">
-        <div className="surface-panel overflow-hidden flex flex-col h-[660px]">
+        <div className="surface-panel overflow-hidden flex flex-col h-[700px]">
           <SitesSelectionPanel form={form} />
-          <ColumnsSelectionPanel form={form} />
         </div>
         <ExportConsole consoleRef={consoleRef} form={form} />
       </div>
