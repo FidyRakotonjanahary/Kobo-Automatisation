@@ -310,25 +310,9 @@ class ExportEngine:
             # Filtrage colonnes
             # On ne filtre QUE si l'utilisateur a envoyé une liste restreinte. 
             # Si la liste est quasi-complète ou vide, on garde tout pour ne rien perdre.
-            if selected_columns and len(selected_columns) < (len(site_main_df.columns) * 0.9):
-                # Correspondance intelligente des colonnes (insensible à la casse / espaces)
-                existing_cols_map = {c.strip().lower(): c for c in site_main_df.columns}
-                actual_cols = []
-                for sc in selected_columns:
-                    sc_norm = sc.strip().lower()
-                    if sc_norm in existing_cols_map:
-                        actual_cols.append(existing_cols_map[sc_norm])
-                
-                # S'assurer que les colonnes vitales et de pivot sont là
-                mandatory = ["_id", "_index", "_uuid", "_parent_index", pivot_column]
-                for m in mandatory:
-                    if m in site_main_df.columns and m not in actual_cols:
-                        actual_cols.append(m)
-                
-                site_export_main = site_main_df[actual_cols]
-            else:
-                # MODE COMPLET : On garde absolument toutes les colonnes du fichier original
-                site_export_main = site_main_df
+            # MODE ZÉRO PERTE : On garde absolument toutes les colonnes du fichier original de Kobo
+            # On ne filtre plus du tout les colonnes pour éviter toute disparition de données technique ou calculée.
+            site_export_main = site_main_df.copy()
 
             try:
                 if export_format == "csv":
