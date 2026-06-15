@@ -332,20 +332,33 @@ class ExportEngine:
 
             try:
                 if export_format == "csv":
-                    # Déterminer quel onglet exporter en CSV
-                    if selected_sheets:
-                        csv_sheet_name = selected_sheets[0]
-                    else:
-                        csv_sheet_name = sheet_names[0]
+                    # Déterminer quel onglet exporter en CSV (avec matching robuste)
+                    selected_name = selected_sheets[0] if selected_sheets else sheet_names[0]
+                    selected_norm = selected_name.strip().lower()
+                    
+                    csv_sheet_name = None
+                    # 1. Match exact ou normalisé
+                    for s_name in sheet_names:
+                        if s_name.strip().lower() == selected_norm:
+                            csv_sheet_name = s_name
+                            break
+                    
+                    # 2. Match par préfixe (si tronqué par Excel à 31 chars)
+                    if not csv_sheet_name:
+                        for s_name in sheet_names:
+                            s_norm = s_name.strip().lower()
+                            if selected_norm.startswith(s_norm[:25]) or s_norm.startswith(selected_norm[:25]):
+                                csv_sheet_name = s_name
+                                break
+                    
+                    if not csv_sheet_name:
+                        raise ValueError(f"L'onglet CSV '{selected_name}' est introuvable dans le fichier.")
 
                     if csv_sheet_name == sheet_names[0]:
                         csv_export_df = self._format_kobo_index_columns(site_export_main)
                         sheet_suffix = None
                     else:
-                        child_raw = dfs.get(csv_sheet_name)
-                        if child_raw is None:
-                            raise ValueError(f"L'onglet '{csv_sheet_name}' est introuvable.")
-                        
+                        child_raw = dfs[csv_sheet_name]
                         csv_export_df = self._format_kobo_index_columns(
                             self._filter_related_sheet_for_site(
                                 child_raw, main_df, valid_indices
