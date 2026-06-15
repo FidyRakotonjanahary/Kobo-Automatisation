@@ -326,15 +326,23 @@ class ExportEngine:
 
             try:
                 if export_format == "csv":
+                    # Déterminer quel onglet exporter en CSV
+                    if selected_sheets:
+                        csv_sheet_name = selected_sheets[0]
+                    else:
+                        csv_sheet_name = sheet_names[0]
+
                     if csv_sheet_name == sheet_names[0]:
-                        csv_export_df = self._format_kobo_index_columns(
-                            site_export_main
-                        )
+                        csv_export_df = self._format_kobo_index_columns(site_export_main)
                         sheet_suffix = None
                     else:
+                        child_raw = dfs.get(csv_sheet_name)
+                        if child_raw is None:
+                            raise ValueError(f"L'onglet '{csv_sheet_name}' est introuvable.")
+                        
                         csv_export_df = self._format_kobo_index_columns(
                             self._filter_related_sheet_for_site(
-                                dfs[csv_sheet_name], site_main_df, valid_indices
+                                child_raw, main_df, valid_indices
                             )
                         )
                         sheet_suffix = self._safe_file_part(csv_sheet_name)
