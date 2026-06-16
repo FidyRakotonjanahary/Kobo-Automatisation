@@ -227,7 +227,22 @@ export const useExportSelection = () => {
     localStorage.setItem('kobo_csv_prefs', JSON.stringify({
       format: exportFormat,
     }));
-  }, [exportFormat]);
+
+    // Si on passe en mode CSV, on ne garde qu'un seul onglet (le premier sélectionné ou le main)
+    if (exportFormat === 'csv' && selectedSheets.length > 1) {
+      if (formStructure && formStructure.sheets.length > 0) {
+        // On cherche si l'onglet principal (index 0) est dans la sélection
+        const mainSheetName = formStructure.sheets[0].name;
+        if (selectedSheets.includes(mainSheetName)) {
+          setSelectedSheets([mainSheetName]);
+        } else {
+          setSelectedSheets([selectedSheets[0]]);
+        }
+      } else {
+        setSelectedSheets([selectedSheets[0]]);
+      }
+    }
+  }, [exportFormat, selectedSheets, formStructure]);
 
   useEffect(() => {
     if (pivot && selectedFormName && selectedAccountIds.length > 0) {

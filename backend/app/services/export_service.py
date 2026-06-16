@@ -165,17 +165,30 @@ class ExportService:
             if not sheets:
                 raise ValueError("Le fichier Excel récupéré est vide.")
             
-            # Scanner tous les onglets pour trouver toutes les colonnes possibles
-            all_columns_set = set()
-            for sheet_df in merged_dfs.values():
-                all_columns_set.update([str(c) for c in sheet_df.columns])
-            columns = sorted(list(all_columns_set))
+            # Liste ordonnée : d'abord l'onglet sélectionné, puis le reste
+            # Construction de la liste des colonnes (optimisée par priorité d'onglet)
+            all_columns_list = []
+            seen_columns = set()
+            
+            scan_order = sheets
+            if req.selected_sheets:
+                selected = [s for s in sheets if s in req.selected_sheets]
+                others = [s for s in sheets if s not in req.selected_sheets]
+                scan_order = selected + others
 
+            for s_name in scan_order:
+                sheet_df = merged_dfs[s_name]
+                for col in sheet_df.columns:
+                    col_str = str(col)
+                    if col_str not in seen_columns:
+                        if col_str.startswith(('_submission', '_notes', '_tags', '_id', '_uuid')) and len(col_str) > 15:
+                            continue
+                        all_columns_list.append(col_str)
+                        seen_columns.add(col_str)
+            
             sites = []
             if req.pivot_column:
                 target_norm = req.pivot_column.replace("_", " ").strip().lower()
-                
-                # Chercher la colonne et ses valeurs dans TOUS les onglets
                 found_values = set()
                 for sheet_df in merged_dfs.values():
                     matched_col = None
@@ -184,26 +197,67 @@ class ExportService:
                             matched_col = col
                             break
                     if matched_col:
-                        # On normalise CHAQUE valeur avant de l'ajouter au set
                         for v in sheet_df[matched_col].dropna().unique():
                             norm_v = TextNormalizer.normalize(str(v))
                             if norm_v:
                                 found_values.add(norm_v)
-                
                 if found_values:
                     sites = sorted(list(found_values))
             
-            return PreviewSitesResult(sites=sites, sheets=sheets, columns=columns)
+            # Identifie l'onglet principal de manière robuste
+            # Dans Kobo, c'est l'onglet qui a le plus de colonnes ou celui qui contient 'start/end/_uuid'
+            def get_main_sheet_name():
+                best_match = sheets[0]
+                max_score = -1
+                for s in sheets:
+                    cols = [str(c).lower() for c in merged_dfs[s].columns]
+                    score = 0
+                    if 'start' in cols: score += 5
+                    if '_uuid' in cols: score += 5
+                    if 'deviceid' in cols: score += 5
+                    if len(cols) > max_score:
+                        max_score = len(cols)
+                        best_match = s
+                    if score > 10: return s # Match certain
+                return best_match
+
+            main_sheet_actual = get_main_sheet_name()
+            
+            # Tri stable : Principal d'abord, puis les autres
+            sorted_sheets = [main_sheet_actual] + [s for s in sheets if s != main_sheet_actual]
+            
+            return PreviewSitesResult(
+                sites=sites, 
+                sheets=sorted_sheets, # On renvoie TOUJOURS la liste pour la stabilité de l'UI
+                columns=all_columns_list
+            )
         except Exception as e:
             logger.error(f"Erreur preview-sites: {e}")
             raise AppException(f"Erreur détection sites: {str(e)}", 500)
 
     @staticmethod
     def open_export_path(path: str | None) -> OpenFileResult:
-        if path and os.path.exists(path):
-            os.startfile(path)
+        import subprocess, sys
+        if not path or not os.path.exists(path):
+            return OpenFileResult(status="error")
+        try:
+            norm_path = os.path.normpath(path)
+            if sys.platform == "win32":
+                import ctypes
+                # Lever la restriction Windows qui empêche de voler le focus
+                # ASFW_ANY (-1) = autoriser N'IMPORTE quel processus à mettre sa fenêtre au premier plan
+                ctypes.windll.user32.AllowSetForegroundWindow(ctypes.c_uint(-1))
+                if os.path.isfile(path):
+                    os.startfile(norm_path)
+                else:
+                    subprocess.Popen(['explorer', norm_path])
+            else:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.Popen([opener, path])
             return OpenFileResult(status="success")
-        return OpenFileResult(status="error")
+        except Exception as e:
+            logger.error(f"Erreur ouverture fichier: {e}")
+            return OpenFileResult(status="error")
 
     def _csv_params(self, req: ExportRequest) -> Dict[str, str]:
         return {

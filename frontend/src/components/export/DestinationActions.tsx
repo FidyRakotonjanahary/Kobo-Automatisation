@@ -35,7 +35,7 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => (
             className="btn-primary-linear !h-10 w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 border-red-500 shadow-red-500/20 active:translate-y-0.5 animate-pulse"
           >
             <RefreshCw className="animate-spin text-white" size={14} />
-            <span className="text-[11px] font-bold text-white uppercase tracking-[0.1em]">ARR\u00caTER</span>
+            <span className="text-[11px] font-bold text-white uppercase tracking-[0.1em]">ARRÊTER</span>
           </button>
         ) : (
           <button

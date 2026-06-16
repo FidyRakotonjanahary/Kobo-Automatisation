@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { Activity, CheckCircle, ChevronRight, FolderOpen } from 'lucide-react';
+import { Activity, CheckCircle, FileSpreadsheet, FolderOpen } from 'lucide-react';
 import api from '../../api/client';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
 
@@ -50,15 +50,15 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => (
             {form.result.files.map((f, i) => (
               <div key={i} onClick={() => { void api.post('/exports/open', { path: f.path }); }} className="p-3 bg-white/[0.03] border border-white/5 rounded-lg hover:bg-white/[0.08] cursor-pointer group transition-all transform hover:-translate-x-1">
                 <div className="flex items-center gap-3">
-                  <div className="bg-white/5 p-2 rounded-lg group-hover:bg-indigo-500/20 transition-colors">
-                    <Activity size={14} className="text-white/40 group-hover:text-indigo-400" />
-                  </div>
+                    <div className="bg-white/5 p-2 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
+                      <FileSpreadsheet size={14} className="text-white/40 group-hover:text-emerald-400" />
+                    </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold text-white/90 truncate uppercase tracking-tight italic">{f.site}</p>
                     <p className="text-[9px] text-indigo-400/70 truncate font-mono mt-0.5">{f.path.split(/[\\/]/).pop()}</p>
                     <p className="text-[10px] text-white/40 mt-1">{f.rows} soumissions trait{"\u00e9"}es</p>
                   </div>
-                  <FolderOpen size={14} className="text-white/10 group-hover:text-indigo-400" />
+                  <FileSpreadsheet size={14} className="text-white/10 group-hover:text-emerald-400" />
                 </div>
               </div>
             ))}

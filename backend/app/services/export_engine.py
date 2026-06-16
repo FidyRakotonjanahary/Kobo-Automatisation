@@ -15,10 +15,18 @@ logger = logging.getLogger("export_engine")
 
 
 class ExportEngine:
-    def __init__(self, output_base_dir: str = "exports"):
-        self.output_base_dir = output_base_dir
+    def __init__(self, output_base_dir: Optional[str] = None):
+        if output_base_dir:
+            self.output_base_dir = output_base_dir
+        else:
+            # On remonte de 3 niveaux depuis backend/app/services/export_engine.py 
+            # pour arriver à la racine du projet
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+            self.output_base_dir = os.path.join(root_dir, "Exports_Kobo")
+            
         if not os.path.isabs(self.output_base_dir):
             self.output_base_dir = os.path.abspath(self.output_base_dir)
+            
         os.makedirs(self.output_base_dir, exist_ok=True)
 
     @staticmethod
@@ -28,7 +36,7 @@ class ExportEngine:
         normalized = re.sub(r"_+", "_", normalized).strip("_")
 
         if "AGR" in normalized.split("_"):
-            return "AGR"
+            return normalized
 
         known_prefixes = [
             ("FOCUS_GROUPE", "FOCUS_GROUPE"),
@@ -86,32 +94,42 @@ class ExportEngine:
     def _filter_related_sheet_for_site(
         sheet_df: pd.DataFrame, site_main_df: pd.DataFrame, valid_indices: List[Any]
     ) -> pd.DataFrame:
-        if "_parent_index" in sheet_df.columns:
-            # Filtrage par parent_index (comparaison robuste par chaîne de caractères)
-            idx_str = [str(v).split(".")[0] for v in (valid_indices or [])]
-            filtered = sheet_df[sheet_df["_parent_index"].astype(str).apply(lambda x: x.split(".")[0]).isin(idx_str)].copy()
-            if not filtered.empty:
-                return filtered
+        if site_main_df.empty and not valid_indices:
+            return sheet_df.iloc[0:0].copy()
 
+        # Stratégie 1 : Par UUID de soumission (Lien universel et le plus stable de Kobo)
         relation_pairs = [
             ("_submission__uuid", "_uuid"),
             ("_submission_uuid", "_uuid"),
             ("_parent_uuid", "_uuid"),
             ("_submission__id", "_id"),
-            ("_submission_id", "_id"),
+            ("PARENT_KEY", "KEY"),
         ]
         for child_col, parent_col in relation_pairs:
             if child_col in sheet_df.columns and parent_col in site_main_df.columns:
-                parent_values = site_main_df[parent_col].dropna().astype(str)
-                return sheet_df[
-                    sheet_df[child_col].astype(str).isin(parent_values)
-                ].copy()
+                parent_values = site_main_df[parent_col].dropna().astype(str).unique()
+                filtered = sheet_df[sheet_df[child_col].astype(str).isin(parent_values)].copy()
+                if not filtered.empty:
+                    return filtered
 
-        logger.warning(
-            "Impossible de relier l'onglet secondaire au site (colonnes testées: "
-            "_parent_index, _submission__uuid, _submission_uuid, _parent_uuid, "
-            "_submission__id, _submission_id). Onglet exporté vide."
-        )
+        # Stratégie 2 : Par parent_index ( fallback si les UUIDs manquent)
+        if "_parent_index" in sheet_df.columns:
+            # On nettoie les indices (parfois '1.0' au lieu de '1')
+            idx_str = [str(v).split(".")[0] for v in (valid_indices or [])]
+            filtered = sheet_df[sheet_df["_parent_index"].astype(str).apply(lambda x: x.split(".")[0]).isin(idx_str)].copy()
+            if not filtered.empty:
+                return filtered
+
+        # Stratégie 3 : Par ID technique
+        if "_submission__id" in sheet_df.columns and "_id" in site_main_df.columns:
+            parent_ids = site_main_df["_id"].dropna().astype(str).unique()
+            filtered = sheet_df[sheet_df["_submission__id"].astype(str).isin(parent_ids)].copy()
+            if not filtered.empty:
+                return filtered
+
+        # Si aucun lien n'est trouvé, mais que site_main_df n'est PAS l'onglet principal
+        # Cela peut arriver si l'onglet enfant est orphelin ou si les noms de colonnes sont exotiques.
+        logger.warning("Lien introuvable pour l'onglet enfant. Exportation vide pour ce site.")
         return sheet_df.iloc[0:0].copy()
 
     @staticmethod
@@ -147,6 +165,7 @@ class ExportEngine:
         selected_sheets: Optional[List[str]] = None,
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
+        task_id: Optional[str] = None,
     ):
         """Pipeline depuis un fichier Excel brut (compte unique)."""
         dfs = pd.read_excel(io.BytesIO(excel_content), sheet_name=None)
@@ -159,6 +178,7 @@ class ExportEngine:
             selected_sheets,
             export_format,
             csv_params,
+            task_id,
         )
 
     def run_pipeline_from_dfs(
@@ -171,6 +191,7 @@ class ExportEngine:
         selected_sheets: Optional[List[str]] = None,
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
+        task_id: Optional[str] = None,
     ):
         """Pipeline depuis des DataFrames déjà fusionnés (multi-comptes)."""
         return self._run(
@@ -182,6 +203,7 @@ class ExportEngine:
             selected_sheets,
             export_format,
             csv_params,
+            task_id,
         )
 
     def _run(
@@ -205,11 +227,20 @@ class ExportEngine:
         )
 
         dfs = {name: repair_dataframe_columns(df) for name, df in dfs.items()}
-        sheet_names = list(dfs.keys())
-        if not sheet_names:
+        all_sheets_avail = list(dfs.keys())
+        if not all_sheets_avail:
             raise ValueError("Le fichier source est vide.")
 
-        main_df = dfs[sheet_names[0]].copy()
+        # Identification ROBUSTE de l'onglet principal (Root)
+        def find_main_sheet():
+            for s in all_sheets_avail:
+                cols = [str(c).lower() for c in dfs[s].columns]
+                if 'start' in cols or '_uuid' in cols or 'deviceid' in cols:
+                    return s
+            return all_sheets_avail[0]
+
+        main_sheet_name = find_main_sheet()
+        main_df = dfs[main_sheet_name].copy()
         generated_files = []
         unique_sites = []
         matched_pivot_col = None
@@ -217,7 +248,7 @@ class ExportEngine:
 
         if pivot_column:
             target_norm = pivot_column.replace("_", " ").strip().lower()
-            search_order = [sheet_names[0]] + [s for s in sheet_names if s != sheet_names[0]]
+            search_order = [all_sheets_avail[0]] + [s for s in all_sheets_avail if s != all_sheets_avail[0]]
             
             for s_name in search_order:
                 s_df = dfs[s_name]
@@ -268,90 +299,85 @@ class ExportEngine:
         if csv_params:
             csv_config.update(csv_params)
 
-        for site in unique_sites:
+        # --- REGROUPEMENT INTELLIGENT PAR RACINE ---
+        # Si on a ANKAVANDRA, ANKAVANDRA_NORD, ANKAVANDRA_SUD, on les met dans le même groupe "ANKAVANDRA"
+        site_groups = {}
+        for s in unique_sites:
+            # On prend le premier mot avant l'underscore comme racine
+            root = s.split("_")[0] if "_" in s else s
+            if root not in site_groups:
+                site_groups[root] = []
+            site_groups[root].append(s)
+
+        for group_name, group_sites in site_groups.items():
+            # Le nom du fichier sera basé sur la racine (le groupe)
+            site_display = group_name 
+            
             # --- POINT D'ARRÊT ---
             if task_id and task_monitor.is_cancelled(task_id):
-                logger.warning(f"Arr\u00eat de l'exportation demand\u00e9 pour {task_id}")
+                logger.warning(f"Arrêt de l'exportation demandé pour {task_id}")
                 break
 
-            if filter_sites and site not in filter_sites:
-                continue
-
-            # Filtrage intelligent selon l'onglet source du pivot
-            # On utilise une comparaison robuste qui ignore les différences '_' vs ' '
-            def robust_match(val):
-                return TextNormalizer.normalize(str(val)) == site
+            # Filtrage de TOUS les sites appartenant à ce groupe
+            def match_in_group(val):
+                return TextNormalizer.normalize(str(val)) in group_sites
 
             if matched_pivot_col in main_df.columns:
                 # Pivot classique dans l'onglet principal
-                site_main_df = main_df[main_df[matched_pivot_col].apply(robust_match)]
+                site_main_df = main_df[main_df[matched_pivot_col].apply(match_in_group)]
                 valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
             else:
                 # Pivot dans un onglet enfant (Repeat Group)
-                anchor_df = source_df[source_df[matched_pivot_col].apply(robust_match)]
+                anchor_df = source_df[source_df[matched_pivot_col].apply(match_in_group)]
                 if "_parent_index" in anchor_df.columns:
-                    # Conversion propre des indices en string pour la comparaison
                     valid_indices = anchor_df["_parent_index"].apply(lambda x: str(x).split(".")[0]).unique().tolist()
                 else:
                     valid_indices = []
                 
-                # Filtrage du main avec conversion temporaire pour le match
                 if "_index" in main_df.columns:
                     site_main_df = main_df[main_df["_index"].apply(lambda x: str(x).split(".")[0]).isin(valid_indices)]
                 else:
                     site_main_df = pd.DataFrame(columns=main_df.columns)
                 
-                # On ajoute la colonne virtuelle pour le filtrage ultérieur
                 site_main_df = site_main_df.copy()
-                site_main_df[pivot_column] = site
+                site_main_df[pivot_column] = site_display
 
-            # Filtrage colonnes
-            # On ne filtre QUE si l'utilisateur a envoyé une liste restreinte. 
-            # Si la liste est quasi-complète ou vide, on garde tout pour ne rien perdre.
-            # MODE ZÉRO PERTE : On garde absolument toutes les colonnes du fichier original de Kobo
-            # On ne filtre plus du tout les colonnes pour éviter toute disparition de données technique ou calculée.
             site_export_main = site_main_df.copy()
 
             try:
                 if export_format == "csv":
-                    # Déterminer quel onglet exporter en CSV (avec matching ULTRA-ROBUSTE)
-                    selected_name = selected_sheets[0] if selected_sheets else sheet_names[0]
-                    # On nettoie le nom demandé par l'utilisateur
+                    # --- RECHERCHE PAR FORCE BRUTE (NOM OU POSITION) ---
+                    selected_name = selected_sheets[0] if selected_sheets else main_sheet_name
                     selected_clean = TextNormalizer.normalize(selected_name)
                     
+                    # On cherche l'onglet par nom
                     csv_sheet_name = None
-                    # On compare avec tous les onglets du fichier, eux aussi nettoyés
-                    for s_name in sheet_names:
+                    for s_name in all_sheets_avail:
                         if TextNormalizer.normalize(s_name) == selected_clean:
                             csv_sheet_name = s_name
                             break
                     
-                    # Si pas de match exact nettoyé, on tente le match par préfixe nettoyé (troncature Excel)
-                    if not csv_sheet_name:
-                        for s_name in sheet_names:
-                            s_clean = TextNormalizer.normalize(s_name)
-                            if selected_clean.startswith(s_clean[:20]) or s_clean.startswith(selected_clean[:20]):
-                                csv_sheet_name = s_name
-                                break
-                    
-                    if not csv_sheet_name:
-                        raise ValueError(f"L'onglet CSV '{selected_name}' est introuvable. Onglets dispo: {', '.join(sheet_names)}")
-
-                    if csv_sheet_name == sheet_names[0]:
-                        csv_export_df = self._format_kobo_index_columns(site_export_main)
+                    # Fallback ultime ou si c'est l'onglet principal
+                    if not csv_sheet_name or csv_sheet_name == main_sheet_name:
+                        final_df = site_export_main.copy()
                         sheet_suffix = None
                     else:
                         child_raw = dfs[csv_sheet_name]
-                        csv_export_df = self._format_kobo_index_columns(
-                            self._filter_related_sheet_for_site(
-                                child_raw, main_df, valid_indices
-                            )
+                        final_df = self._filter_related_sheet_for_site(
+                            child_raw, site_main_df, valid_indices
                         )
                         sheet_suffix = self._safe_file_part(csv_sheet_name)
 
+                    # On s'assure que la colonne Pivot est présente
+                    if matched_pivot_col not in final_df.columns:
+                        final_df = final_df.copy()
+                        final_df[pivot_column] = site_display
+
+                    csv_export_df = self._format_kobo_index_columns(final_df)
+
                     suffix = f"_{sheet_suffix}" if sheet_suffix else ""
                     file_path = os.path.join(
-                        form_folder, f"{file_prefix}_{site}{suffix}.csv"
+                        form_folder, f"{file_prefix}_{site_display}{suffix}.csv"
                     )
                     csv_export_df.to_csv(
                         file_path,
@@ -364,20 +390,14 @@ class ExportEngine:
                     )
                     exported_rows = len(csv_export_df)
                 else:
-                    file_path = os.path.join(form_folder, f"{file_prefix}_{site}.xlsx")
+                    file_path = os.path.join(form_folder, f"{file_prefix}_{site_display}.xlsx")
                     # Export Excel
                     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
                         sheets_written = 0
-                        # Normalisation pour la comparaison
                         normalized_selected = [s.strip().lower() for s in (selected_sheets or [])]
                         
-                        main_sheet_name = sheet_names[0]
                         main_sheet_lower = main_sheet_name.strip().lower()
                         
-                        # Match si : 
-                        # 1. Pas de sélection (on prend tout)
-                        # 2. Match exact
-                        # 3. Le nom Excel commence par le nom sélectionné (ou vice-versa)
                         is_main_selected = not selected_sheets or \
                                           main_sheet_lower in normalized_selected or \
                                           any(main_sheet_lower.startswith(s[:25]) for s in normalized_selected) or \
@@ -389,19 +409,22 @@ class ExportEngine:
                             )
                             sheets_written += 1
 
-                        # Repeat Groups / child sheets
-                        for s_name in sheet_names[1:]:
+                        for s_name in all_sheets_avail[1:]:
                             if selected_sheets and s_name.strip().lower() not in normalized_selected:
                                 continue
                             child_df = dfs[s_name]
                             site_child_df = self._filter_related_sheet_for_site(
                                 child_df, site_main_df, valid_indices
                             )
+                            
+                            if matched_pivot_col not in site_child_df.columns:
+                                site_child_df = site_child_df.copy()
+                                site_child_df[pivot_column] = site_display
+
                             if site_child_df.empty:
                                 logger.warning(
-                                    "Onglet '%s' vide pour le site '%s' "
-                                    "(0 ligne reliée). Onglet inclus quand même.",
-                                    s_name, site,
+                                    "Onglet '%s' vide pour le groupe '%s'",
+                                    s_name, group_name,
                                 )
                             self._format_kobo_index_columns(
                                 site_child_df
@@ -410,7 +433,6 @@ class ExportEngine:
                             )
                             sheets_written += 1
 
-                        # Guarantee at least one sheet to avoid corrupt XLSX
                         if sheets_written == 0:
                             pd.DataFrame().to_excel(
                                 writer, sheet_name="Vide", index=False
@@ -418,9 +440,9 @@ class ExportEngine:
                     exported_rows = len(site_main_df)
 
                 generated_files.append(
-                    {"site": site, "path": file_path, "rows": exported_rows}
+                    {"site": site_display, "path": file_path, "rows": exported_rows}
                 )
             except Exception as e:
-                logger.error(f"Erreur pour le site {site}: {e}")
+                logger.error(f"Erreur pour le groupe {group_name}: {e}")
 
         return generated_files
