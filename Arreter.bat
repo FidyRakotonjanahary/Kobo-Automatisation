@@ -1,25 +1,21 @@
 @echo off
 chcp 65001 >nul
-title Kobo Automation Suite - Arrêt
-color 0C
+title ARRET - Kobo Automation Suite
 
 echo.
-echo  Arrêt de Kobo Automation Suite...
+echo  Arrêt forcé en cours...
 echo.
 
-:: Fermer les fenêtres de terminal du projet
-taskkill /FI "WINDOWTITLE eq Kobo - Backend (FastAPI)*" /T /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Kobo - Frontend (Vite)*" /T /F >nul 2>&1
+:: 1. Tuer les processus serveurs
+taskkill /F /IM node.exe /T >nul 2>&1
+taskkill /F /IM python.exe /T >nul 2>&1
+taskkill /F /IM uvicorn.exe /T >nul 2>&1
 
-:: Tuer les processus uvicorn et node liés au projet
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000 " ^| findstr "LISTENING"') do (
-    taskkill /PID %%p /F >nul 2>&1
-)
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":3001 " ^| findstr "LISTENING"') do (
-    taskkill /PID %%p /F >nul 2>&1
-)
+:: 2. Fermer le navigateur (Kobo) et les fenêtres System32 résiduelles
+powershell -Command "Get-Process | Where-Object {$_.MainWindowTitle -like '*Kobo*'} | Stop-Process -Force" >nul 2>&1
+powershell -Command "Get-Process | Where-Object {$_.MainWindowTitle -like '*System32\cmd.exe*'} | Stop-Process -Force" >nul 2>&1
 
-echo  ✓ Serveurs arrêtés.
-echo.
-timeout /t 2 /nobreak >nul
-exit
+:: 3. Fermer toutes les fenêtres de commande liées au dossier du projet
+echo  Fermeture des terminaux du projet...
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'cmd.exe' -and $_.CommandLine -like '*Automatisation Kobo*' } | ForEach-Object { Stop-Process $_.ProcessId -Force }" >nul 2>&1
+taskkill /F /IM cmd.exe >nul 2>&1
