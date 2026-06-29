@@ -37,7 +37,7 @@ export const useExportSelection = () => {
   const [pivot, setPivot] = useState('');
   const [loadingAccountIds, setLoadingAccountIds] = useState<number[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx');
-  const [csvSeparator] = useState<CsvSeparator>(';');
+  const [csvSeparator, setCsvSeparator] = useState<CsvSeparator>(';');
   const [csvEncoding] = useState<CsvEncoding>('utf-8-sig');
   const [csvQuotechar] = useState('"');
 
@@ -215,7 +215,7 @@ export const useExportSelection = () => {
       try {
         const prefs = JSON.parse(saved) as CsvPrefs;
         const savedSeparator = prefs.sep || ';';
-        const savedEncoding = normalizeCsvEncoding(savedSeparator, prefs.enc || 'utf-8-sig') as CsvEncoding;
+        setCsvSeparator(savedSeparator);
         if (prefs.format) setExportFormat(prefs.format);
       } catch {
         localStorage.removeItem('kobo_csv_prefs');
@@ -226,6 +226,7 @@ export const useExportSelection = () => {
   useEffect(() => {
     localStorage.setItem('kobo_csv_prefs', JSON.stringify({
       format: exportFormat,
+      sep: csvSeparator,
     }));
 
     // Si on passe en mode CSV, on ne garde qu'un seul onglet (le premier sélectionné ou le main)
@@ -318,6 +319,7 @@ export const useExportSelection = () => {
     setSelectedColumns,
     setPivot,
     setExportFormat,
+    setCsvSeparator,
   };
 };
 

@@ -7,8 +7,6 @@ import type {
   ExportRequest,
   ExportResult,
   GoogleStatus,
-  PreviewRequest,
-  PreviewResult,
 } from '../types/export';
 import { normalizeCsvEncoding, useExportSelection } from './useExportSelection';
 
@@ -19,8 +17,6 @@ export const useExportActions = (selection: ExportSelectionState) => {
   const [result, setResult] = useState<ExportResult | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [driveFolderId, setDriveFolderId] = useState('');
-  const [csvPreview, setCsvPreview] = useState<string | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
   const exportMutation = useMutation<AxiosResponse<ExportResult>, AxiosError<ApiErrorBody>, ExportRequest>({
@@ -46,43 +42,15 @@ export const useExportActions = (selection: ExportSelectionState) => {
       .catch(() => setGoogleConnected(false));
   }, []);
 
-  const handlePreview = async () => {
-    if (!selection.selectedFormName || selection.selectedSheets.length === 0) {
-      toast.error("Choisissez un onglet.");
-      return;
-    }
-    setLoadingPreview(true);
-    try {
-      const accountForms = selection.buildAccountForms();
-      const requestEncoding = normalizeCsvEncoding(selection.csvSeparator, selection.csvEncoding);
-      const payload: PreviewRequest = {
-        account_forms: accountForms,
-        form_name: selection.selectedFormName,
-        csv_separator: selection.csvSeparator,
-        csv_encoding: requestEncoding as PreviewRequest['csv_encoding'],
-        csv_quotechar: selection.csvQuotechar,
-        selected_sheets: selection.selectedSheets,
-      };
-      const res = await api.post<PreviewResult>('/exports/preview', payload);
-      setCsvPreview(res.data.preview);
-    } catch {
-      toast.error("Erreur aper\u00e7u.");
-    } finally {
-      setLoadingPreview(false);
-    }
-  };
-
   const handleRun = () => {
     if (selection.selectedAccountIds.length === 0 || !selection.selectedFormName) {
-      toast.error("Config incompl\u00e8te.");
+      toast.error("Config incomplète.");
       return;
     }
     if (selection.selectedSheets.length === 0) {
-      toast.error("S\u00e9lectionnez au moins un onglet.");
+      toast.error("Sélectionnez au moins un onglet.");
       return;
     }
-    // En mode CSV, si plusieurs onglets sont présents, on prendra de toute façon le premier dans le backend.
-    // On retire donc le blocage strict ici pour plus de souplesse.
 
     setResult(null);
     const accountForms = selection.buildAccountForms();
@@ -121,14 +89,9 @@ export const useExportActions = (selection: ExportSelectionState) => {
     result,
     googleConnected,
     driveFolderId,
-    csvPreview,
-    loadingPreview,
     exportMutation,
-    handlePreview,
     handleRun,
     handleCancel,
     setDriveFolderId,
-    setCsvPreview,
   };
 };
-

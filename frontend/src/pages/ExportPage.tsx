@@ -1,7 +1,6 @@
 import { useRef } from 'react';
 import { AccountSelector } from '../components/export/AccountSelector';
 import { ColumnsSelectionPanel } from '../components/export/ColumnsSelectionPanel';
-import { CsvPreviewPanel } from '../components/export/CsvPreviewPanel';
 import { DestinationActions } from '../components/export/DestinationActions';
 import { ExportConsole } from '../components/export/ExportConsole';
 import { ExportHeader } from '../components/export/ExportHeader';
@@ -27,7 +26,6 @@ const ExportPage = () => {
         <DestinationActions form={form} />
       </div>
 
-      <CsvPreviewPanel form={form} />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 pt-4">
         <div className="surface-panel overflow-hidden flex flex-col h-[700px]">

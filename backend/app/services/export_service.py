@@ -118,41 +118,6 @@ class ExportService:
         finally:
             task_monitor.stop_task(task_id)
 
-    async def preview_export(self, req: ExportRequest) -> PreviewResult:
-        cred_uid_pairs = await resolve_credential_pairs(
-            self.credential_repository,
-            req.account_forms,
-        )
-
-        try:
-            dfs = await self._load_export_dataframes(cred_uid_pairs)
-            sheet_names = list(dfs.keys())
-            if not sheet_names:
-                raise ValueError("Le fichier source est vide.")
-
-            # Priorité à l'onglet sélectionné, sinon le premier
-            sheet_name = sheet_names[0]
-            if req.selected_sheets:
-                for target in req.selected_sheets:
-                    if target in dfs:
-                        sheet_name = target
-                        break
-
-            df = repair_dataframe_columns(dfs[sheet_name])
-            preview_df = df.head(5)
-            buffer = io.StringIO()
-            preview_df.to_csv(
-                buffer,
-                index=False,
-                sep=req.csv_separator,
-                encoding=resolve_csv_encoding(req.csv_separator, req.csv_encoding),
-                quotechar=req.csv_quotechar,
-                lineterminator="\r\n",
-            )
-            return PreviewResult(preview=buffer.getvalue())
-        except Exception as e:
-            raise AppException(f"Erreur aperçu: {str(e)}", 500)
-
     async def preview_sites(self, req: ExportRequest) -> PreviewSitesResult:
         cred_uid_pairs = await resolve_credential_pairs(
             self.credential_repository,

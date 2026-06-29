@@ -1,7 +1,5 @@
-import { Eye, Link, RefreshCw, Send } from 'lucide-react';
+import { Link, RefreshCw, Send } from 'lucide-react';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
-import { normalizeCsvEncoding } from '../../hooks/useExportSelection';
-import type { CsvEncoding, CsvSeparator } from '../../types/export';
 
 interface DestinationActionsProps {
   form: UseExportFormReturn;
@@ -17,18 +15,41 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => (
       <div className="space-y-3">
         <input className="input-linear" placeholder="Dossier Drive (ID)" value={form.driveFolderId} onChange={e => form.setDriveFolderId(e.target.value)} />
         {form.exportFormat === 'csv' && (
-          <div className="flex items-center justify-center gap-2 p-1.5 bg-indigo-50/50 rounded-lg border border-indigo-100/50">
-            <span className="text-[9px] font-bold text-indigo-600/70 uppercase tracking-wider">CSV : Point-virgule + UTF-8 BOM</span>
+          <div className="space-y-1.5 p-2 bg-indigo-50/30 rounded-lg border border-indigo-100/50">
+            <label className="text-[9px] font-bold text-indigo-700/80 uppercase tracking-wider block">Séparateur CSV</label>
+            <div className="flex gap-1.5">
+              <button 
+                type="button"
+                onClick={() => form.setCsvSeparator(';')}
+                className={`flex-1 py-1 rounded text-[9px] font-bold border transition-all ${
+                  form.csvSeparator === ';' 
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                    : 'bg-white border-gray-250 text-gray-400 hover:border-gray-200'
+                }`}
+              >
+                POINT-VIRGULE (;)
+              </button>
+              <button 
+                type="button"
+                onClick={() => form.setCsvSeparator(',')}
+                className={`flex-1 py-1 rounded text-[9px] font-bold border transition-all ${
+                  form.csvSeparator === ',' 
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                    : 'bg-white border-gray-250 text-gray-400 hover:border-gray-200'
+                }`}
+              >
+                VIRGULE (,)
+              </button>
+            </div>
+            <p className="text-[8px] text-gray-400 italic mt-0.5 leading-tight">
+              {form.csvSeparator === ';' 
+                ? "Excel en français. Décimales avec des points (.)."
+                : "Standard GPS/SIG (QGIS). Import automatique."}
+            </p>
           </div>
         )}
       </div>
       <div className="mt-auto flex flex-col gap-2">
-        {form.exportFormat === 'csv' && (
-          <button onClick={form.handlePreview} disabled={form.loadingPreview || !form.selectedSheets[0]} className="btn-secondary-linear !h-9 w-full flex items-center justify-center gap-2">
-            {form.loadingPreview ? <RefreshCw className="animate-spin text-indigo-500" size={12} /> : <Eye size={12} className="text-gray-400" />}
-            <span className="uppercase tracking-wider">Aper{"\u00e7"}u</span>
-          </button>
-        )}
         {form.exportMutation.isPending ? (
           <button
             onClick={form.handleCancel}

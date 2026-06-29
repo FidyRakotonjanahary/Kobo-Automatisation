@@ -153,6 +153,19 @@ class ExportEngine:
                 formatted[column] = formatted[column].apply(
                     cls._format_kobo_index_value
                 )
+        
+        # Nettoyer toutes les colonnes numériques float qui ne contiennent que des valeurs entières (pour enlever le .0 indésirable)
+        for col in formatted.columns:
+            if pd.api.types.is_numeric_dtype(formatted[col]):
+                non_nulls = formatted[col].dropna()
+                if not non_nulls.empty:
+                    try:
+                        # Si tous les nombres existants dans la colonne sont entiers (modulo 1 == 0),
+                        # on applique le type Pandas Int64 qui gère les NaN tout en enlevant le .0
+                        if (non_nulls % 1 == 0).all():
+                            formatted[col] = formatted[col].astype("Int64")
+                    except Exception:
+                        pass
         return formatted
 
     def run_pipeline_from_bytes(

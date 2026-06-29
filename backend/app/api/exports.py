@@ -7,7 +7,6 @@ from app.schemas.export import (
     ExportResult,
     OpenFileRequest,
     OpenFileResult,
-    PreviewResult,
     PreviewSitesResult,
 )
 from app.core.task_monitor import task_monitor
@@ -26,12 +25,6 @@ async def run_export(req: ExportRequest, db: AsyncSession = Depends(get_db)):
 async def cancel_export(task_id: str):
     task_monitor.cancel_task(task_id)
     return {"status": "request_sent"}
-
-
-@router.post("/preview", response_model=PreviewResult)
-async def preview_csv(req: ExportRequest, db: AsyncSession = Depends(get_db)):
-    service = ExportService(db)
-    return await service.preview_export(req)
 
 
 @router.post("/preview-sites", response_model=PreviewSitesResult)
