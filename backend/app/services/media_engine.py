@@ -26,20 +26,15 @@ class MediaEngine:
     async def pre_flight_check(self, spreadsheet_id: str, drive_folder_id: str):
         """Vérifie l'accès aux ressources avant de commencer."""
         try:
-            await asyncio.to_thread(
-                lambda: self.google.sheets.spreadsheets().get(
-                    spreadsheetId=spreadsheet_id, fields="spreadsheetId"
-                ).execute()
-            )
-            await asyncio.to_thread(
-                lambda: self.google.drive.files().get(fileId=drive_folder_id, fields="id").execute()
-            )
+            # Lecture légère du sheet pour tester l'accès
+            await self.google.get_sheet_data(spreadsheet_id, "A1:A1")
         except Exception as e:
             logger.error(f"Pre-flight check failed: {e}")
-            raise AppException(
-                f"Accès Google refusé : {str(e)}",
-                403,
-            )
+            raise AppException(f"Accès Google refusé : {str(e)}", 403)
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Migration Google Sheet → Drive
+    # ═══════════════════════════════════════════════════════════════
 
     async def migrate_sheet(
         self,
@@ -59,16 +54,23 @@ class MediaEngine:
 
         await self.pre_flight_check(spreadsheet_id, drive_folder_id)
 
+        # ── Récupérer la liste des onglets via l'API Sheets ──
         try:
             report("🔍 Analyse de la structure du Google Sheet...")
-            ss_metadata = await asyncio.to_thread(
-                lambda: self.google.sheets.spreadsheets()
-                .get(spreadsheetId=spreadsheet_id)
-                .execute()
-            )
-            all_sheets = [
-                s["properties"]["title"] for s in ss_metadata.get("sheets", [])
-            ]
+            import httpx
+            from app.services.google_service import _load_creds_data
+            # On utilise directement get_sheet_data pour les onglets connus
+            # Pour la liste des onglets, on fait un appel direct
+            async with httpx.AsyncClient(timeout=30) as client:
+                token = await self.google._ensure_token(client)
+                res = await client.get(
+                    f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}?fields=sheets.properties.title",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if res.status_code != 200:
+                raise Exception(f"HTTP {res.status_code}: {res.text[:200]}")
+            ss_data = res.json()
+            all_sheets = [s["properties"]["title"] for s in ss_data.get("sheets", [])]
 
             if sheet_name and sheet_name.strip():
                 if sheet_name in all_sheets:
@@ -99,7 +101,7 @@ class MediaEngine:
                 continue
 
             try:
-                rows = await asyncio.to_thread(self.google.get_sheet_data, spreadsheet_id, f"'{s_name}'!A:ZZ")
+                rows = await self.google.get_sheet_data(spreadsheet_id, f"'{s_name}'!A:ZZ")
                 if not rows:
                     continue
                 headers = rows[0]
@@ -130,18 +132,17 @@ class MediaEngine:
                     sheets_data[s_name] = {
                         "target_folder": target_folder,
                         "headers": headers,
-                        "valid_items": valid_items
+                        "valid_items": valid_items,
                     }
                     total_items += len(valid_items)
             except Exception as e:
                 report(f"⚠️ Erreur lors de l'analyse de '{s_name}': {e}")
 
-        report(f"🚀 Scan terminé : {total_items} média(s) en attente de migration (mode parallèle x{concurrency}).", 0, total_items)
+        report(f"🚀 Scan terminé : {total_items} média(s) en attente de migration (parallèle x{concurrency}).", 0, total_items)
 
         global_stats = {"success": 0, "failed": 0, "failed_items": []}
         current_count = 0
-        sem = asyncio.Semaphore(concurrency)   # parallélisme download Kobo
-        drive_sem = asyncio.Semaphore(1)        # sérialisation upload Google Drive
+        sem = asyncio.Semaphore(concurrency)  # parallélisme download Kobo
         lock = asyncio.Lock()
 
         for s_name, s_info in sheets_data.items():
@@ -186,17 +187,14 @@ class MediaEngine:
 
                 if download_success:
                     try:
-                        async with drive_sem:  # un seul upload Drive à la fois
-                            drive_link = await asyncio.to_thread(
-                                self.google.upload_file, local_path, target_folder, display_name
-                            )
+                        # ── Upload httpx natif async (zéro thread, zéro SSL clash) ──
+                        drive_link = await self.google.upload_file(local_path, target_folder, display_name)
+
                         col_letter = self._get_column_letter(col_idx + 1)
                         if update_links:
                             range_at = f"'{s_name}'!{col_letter}{real_row}"
-                            async with drive_sem:
-                                await asyncio.to_thread(
-                                    self.google.update_cell, spreadsheet_id, range_at, drive_link
-                                )
+                            await self.google.update_cell(spreadsheet_id, range_at, drive_link)
+
                         async with lock:
                             global_stats["success"] += 1
                             action = "migré" if update_links else "uploadé"
@@ -204,14 +202,14 @@ class MediaEngine:
                     except Exception as e:
                         async with lock:
                             report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
-                            logger.exception(f"Erreur Drive lors de la migration ligne {real_row} : {e}")
+                            logger.exception(f"Erreur Drive migration ligne {real_row}")
                             global_stats["failed"] += 1
                             global_stats["failed_items"].append({
                                 "sheet": s_name,
                                 "row": real_row,
                                 "col": col_name,
                                 "url": url,
-                                "reason": f"Erreur Google Drive: {str(e)}"
+                                "reason": f"Erreur Google Drive: {str(e)}",
                             })
                     finally:
                         if os.path.exists(local_path):
@@ -228,13 +226,17 @@ class MediaEngine:
                             "row": real_row,
                             "col": col_name,
                             "url": url,
-                            "reason": "Échec de téléchargement depuis Kobo"
+                            "reason": "Échec de téléchargement depuis Kobo",
                         })
 
             tasks = [worker(item) for item in valid_items]
             await asyncio.gather(*tasks)
 
         return global_stats
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Migration Excel local → Drive
+    # ═══════════════════════════════════════════════════════════════
 
     async def migrate_excel_file(
         self,
@@ -247,9 +249,6 @@ class MediaEngine:
         update_links: bool = True,
         concurrency: int = 5,
     ) -> tuple[Optional[bytes], dict]:
-        """
-        Lit un fichier Excel local, migre les photos Kobo vers Drive en parallèle.
-        """
         def report(msg, current=None, total=None):
             logger.info(msg)
             if on_progress:
@@ -316,16 +315,15 @@ class MediaEngine:
                 sheets_data[s_name] = {
                     "target_folder": target_folder,
                     "headers": headers,
-                    "valid_items": valid_items
+                    "valid_items": valid_items,
                 }
                 total_items += len(valid_items)
 
-        report(f"🚀 Scan Excel terminé : {total_items} média(s) à migrer (mode parallèle x{concurrency}).", 0, total_items)
+        report(f"🚀 Scan Excel terminé : {total_items} média(s) à migrer (parallèle x{concurrency}).", 0, total_items)
 
         global_stats = {"success": 0, "failed": 0, "failed_items": []}
         current_count = 0
-        sem = asyncio.Semaphore(concurrency)   # parallélisme download Kobo
-        drive_sem = asyncio.Semaphore(1)        # sérialisation upload Google Drive
+        sem = asyncio.Semaphore(concurrency)  # parallélisme download Kobo
         lock = asyncio.Lock()
 
         for s_name, s_info in sheets_data.items():
@@ -371,10 +369,9 @@ class MediaEngine:
 
                 if download_success:
                     try:
-                        async with drive_sem:  # un seul upload Drive à la fois
-                            drive_link = await asyncio.to_thread(
-                                self.google.upload_file, local_path, target_folder, display_name
-                            )
+                        # ── Upload httpx natif async (zéro thread, zéro SSL clash) ──
+                        drive_link = await self.google.upload_file(local_path, target_folder, display_name)
+
                         async with lock:
                             if update_links:
                                 df.iat[row_idx, col_idx] = drive_link
@@ -384,14 +381,14 @@ class MediaEngine:
                     except Exception as e:
                         async with lock:
                             report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
-                            logger.exception(f"Erreur Drive lors de la migration Excel ligne {real_row} : {e}")
+                            logger.exception(f"Erreur Drive migration Excel ligne {real_row}")
                             global_stats["failed"] += 1
                             global_stats["failed_items"].append({
                                 "sheet": s_name,
                                 "row": real_row,
                                 "col": col_name,
                                 "url": url,
-                                "reason": f"Erreur Google Drive: {str(e)}"
+                                "reason": f"Erreur Google Drive: {str(e)}",
                             })
                     finally:
                         if os.path.exists(local_path):
@@ -408,7 +405,7 @@ class MediaEngine:
                             "row": real_row,
                             "col": col_name,
                             "url": url,
-                            "reason": "Échec de téléchargement depuis Kobo"
+                            "reason": "Échec de téléchargement depuis Kobo",
                         })
 
             tasks = [excel_worker(item) for item in valid_items]
@@ -427,6 +424,10 @@ class MediaEngine:
         else:
             report("✔️ Photos uploadées sur Drive. Le fichier Excel source n'a pas été modifié.", current_count, total_items)
             return None, global_stats
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Helpers
+    # ═══════════════════════════════════════════════════════════════
 
     async def _kobo_download_retry(self, url: str, path: str) -> bool:
         for acc in self.kobo_accounts:

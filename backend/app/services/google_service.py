@@ -1,253 +1,257 @@
+"""
+GoogleService - Client Google Drive/Sheets 100% async (httpx).
+
+Pourquoi httpx au lieu de requests/AuthorizedSession ?
+- requests est synchrone : il doit être appelé via asyncio.to_thread()
+- asyncio.to_thread() crée des threads qui partagent le contexte OpenSSL de Python
+- Sur Windows, ce partage provoque des corruptions SSL (WRONG_VERSION_NUMBER, etc.)
+- httpx est natif async : toutes les connexions SSL s'exécutent dans l'event loop,
+  sans jamais toucher à un thread différent.
+"""
 import json
 import logging
 import os
 import sys
-import threading
 import time
 from typing import Optional
 
-from googleapiclient.discovery import build
-from google.auth.transport.requests import AuthorizedSession
-from google.oauth2.credentials import Credentials
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
+import httpx
 
 from app.core.exceptions import GoogleAuthError, GooglePermissionError, GoogleQuotaError
 
 logger = logging.getLogger("google_service")
 
-# Stockage thread-local : chaque thread du pool d'asyncio aura sa propre session HTTP
-_thread_local = threading.local()
+TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
-def _build_session(creds: Credentials) -> AuthorizedSession:
-    """Crée une AuthorizedSession avec retry et timeout pour un thread donné."""
-    retry_strategy = Retry(
-        total=5,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(
-        pool_connections=1,   # 1 pool par thread-session
-        pool_maxsize=4,
-        max_retries=retry_strategy,
-    )
-    session = AuthorizedSession(creds)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
+def _load_creds_data() -> dict:
+    """Lit le fichier token.json et retourne son contenu."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    backend_dir = os.path.dirname(os.path.dirname(current_dir))
+    token_file = os.path.join(backend_dir, "token.json")
+    if not os.path.exists(token_file):
+        raise GoogleAuthError(detail="token.json introuvable.")
+    with open(token_file, "r") as f:
+        return json.load(f), token_file
 
 
 class GoogleService:
+    """
+    Client Google Drive/Sheets entièrement asynchrone basé sur httpx.
+    Chaque méthode est un coroutine (async def) — aucun thread n'est utilisé.
+    """
+
     def __init__(self):
-        print("--- INITIALISATION GOOGLE SERVICE ---", file=sys.stderr)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        backend_dir = os.path.dirname(os.path.dirname(current_dir))
-        TOKEN_FILE = os.path.join(backend_dir, "token.json")
+        print("--- INITIALISATION GOOGLE SERVICE (httpx async) ---", file=sys.stderr)
+        self._data, self._token_file = _load_creds_data()
+        self._access_token: Optional[str] = self._data.get("token")
+        self._refresh_token: str = self._data.get("refresh_token", "")
+        self._client_id: str = self._data.get("client_id", "")
+        self._client_secret: str = self._data.get("client_secret", "")
+        self._token_expiry: float = 0.0  # Toujours refresher au premier appel
 
-        creds = None
-        if os.path.exists(TOKEN_FILE):
-            from google.auth.transport.requests import Request as GoogleRequest
+    # ───────────────────────── Auth helpers ────────────────────────────────
 
-            try:
-                with open(TOKEN_FILE, "r") as f:
-                    data = json.load(f)
-                    creds = Credentials(
-                        token=data.get("token"),
-                        refresh_token=data.get("refresh_token"),
-                        token_uri=data.get("token_uri"),
-                        client_id=data.get("client_id"),
-                        client_secret=data.get("client_secret"),
-                        scopes=data.get("scopes"),
-                    )
+    async def _ensure_token(self, client: httpx.AsyncClient) -> str:
+        """Retourne (et rafraichit si nécessaire) l'access token."""
+        if self._access_token and time.time() < self._token_expiry - 60:
+            return self._access_token
 
-                if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(GoogleRequest())
-                    data["token"] = creds.token
-                    with open(TOKEN_FILE, "w") as f:
-                        json.dump(data, f)
-            except Exception as e:
-                logger.error(f"Erreur refresh token: {e}")
-                creds = None
+        # Refresh
+        logger.info("Rafraîchissement du token Google...")
+        res = await client.post(
+            TOKEN_URL,
+            data={
+                "client_id": self._client_id,
+                "client_secret": self._client_secret,
+                "refresh_token": self._refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=30,
+        )
+        if res.status_code != 200:
+            raise GoogleAuthError(detail=f"Impossible de rafraîchir le token: {res.text}")
 
-        if not creds:
-            raise GoogleAuthError(detail="Token manquant ou invalide.")
+        payload = res.json()
+        self._access_token = payload["access_token"]
+        self._token_expiry = time.time() + payload.get("expires_in", 3600)
 
-        self.creds = creds
+        # Persister le nouveau token
+        self._data["token"] = self._access_token
+        with open(self._token_file, "w") as f:
+            json.dump(self._data, f)
 
-        try:
-            self._drive_service = build("drive", "v3", credentials=self.creds, cache_discovery=False)
-            self._sheets_service = build("sheets", "v4", credentials=self.creds, cache_discovery=False)
-        except Exception as e:
-            raise GoogleAuthError(detail=str(e))
+        return self._access_token
 
-    def _get_session(self) -> AuthorizedSession:
-        """Retourne la session HTTP propre au thread courant (créée si absente)."""
-        if not hasattr(_thread_local, "session") or _thread_local.session is None:
-            _thread_local.session = _build_session(self.creds)
-        return _thread_local.session
+    def _client(self) -> httpx.AsyncClient:
+        """Crée un client httpx avec les bons paramètres."""
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(90.0, connect=15.0),
+            follow_redirects=True,
+        )
 
-    @property
-    def drive(self):
-        return self._drive_service
+    def _auth_headers(self, token: str) -> dict:
+        return {"Authorization": f"Bearer {token}"}
 
-    @property
-    def sheets(self):
-        return self._sheets_service
-
-    def _handle_request_error(self, res):
+    def _handle_error(self, res: httpx.Response) -> None:
         status = res.status_code
         try:
-            details = res.text
             data = res.json()
-            reason = data.get("error", {}).get("message", res.reason)
+            reason = data.get("error", {}).get("message", str(res.text[:200]))
         except Exception:
-            reason = res.reason
-            details = res.text
+            reason = str(res.text[:200])
 
-        logger.error(f"!!! GOOGLE HTTP ERROR {status} !!!")
-        logger.error(f"Reason: {reason}")
-        logger.error(f"Details: {details}")
+        logger.error(f"GOOGLE HTTP {status}: {reason}")
 
         if status == 401:
+            self._token_expiry = 0.0  # Forcer le refresh
             raise GoogleAuthError(detail=reason)
         if status == 403:
             if "quota" in reason.lower() or "limit" in reason.lower():
                 raise GoogleQuotaError(detail=reason)
-            raise GooglePermissionError(
-                detail=f"Erreur 403 (Forbidden): {reason} - Vérifiez que le compte a bien accès au fichier."
-            )
+            raise GooglePermissionError(detail=f"403 Forbidden: {reason}")
         if status == 400:
-            if "office file" in details.lower() or "office file" in reason.lower():
-                raise Exception(
-                    "Accès refusé : Le fichier est au format Excel (.xlsx). "
-                    "Veuillez l'ouvrir dans Google Drive et faire 'Fichier > Enregistrer au format Google Sheets'."
-                )
-            raise Exception(
-                f"Erreur 400 (Bad Request): {reason} - Vérifiez les paramètres (ID du fichier, nom de l'onglet)."
-            )
+            raise Exception(f"400 Bad Request: {reason}")
         if status == 404:
-            raise Exception("Dossier ou fichier Drive introuvable (404).")
+            raise Exception("404 Not Found: Dossier ou fichier Drive introuvable.")
         raise Exception(f"Erreur Google API ({status}): {reason}")
 
-    def upload_file(
+    # ───────────────────────── Drive ───────────────────────────────────────
+
+    async def upload_file(
         self, local_path: str, folder_id: str, display_name: str, convert: bool = False
     ) -> str:
+        """Upload un fichier local vers Google Drive. Retourne le lien webView."""
         import mimetypes
+
+        content_type, _ = mimetypes.guess_type(local_path)
+        if not content_type:
+            content_type = "application/octet-stream"
+
+        with open(local_path, "rb") as f:
+            file_data = f.read()
+
+        metadata = {"name": display_name, "parents": [folder_id]}
+        if convert:
+            metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
+
+        boundary = "kobo_gc_boundary"
+        body = (
+            f"--{boundary}\r\n"
+            "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            f"{json.dumps(metadata)}\r\n"
+            f"--{boundary}\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode() + file_data + f"\r\n--{boundary}--".encode()
+
+        url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
 
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                session = self._get_session()
+                async with self._client() as client:
+                    token = await self._ensure_token(client)
+                    headers = {
+                        **self._auth_headers(token),
+                        "Content-Type": f"multipart/related; boundary={boundary}",
+                    }
+                    res = await client.post(url, content=body, headers=headers)
 
-                metadata = {"name": display_name, "parents": [folder_id]}
-                if convert:
-                    metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
-
-                content_type, _ = mimetypes.guess_type(local_path)
-                if not content_type:
-                    content_type = "application/octet-stream"
-
-                with open(local_path, "rb") as f:
-                    file_data = f.read()
-
-                boundary = "kobo_boundary_xyz"
-                body = (
-                    f"--{boundary}\r\n"
-                    "Content-Type: application/json; charset=UTF-8\r\n\r\n"
-                    f"{json.dumps(metadata)}\r\n"
-                    f"--{boundary}\r\n"
-                    f"Content-Type: {content_type}\r\n\r\n"
-                ).encode("utf-8") + file_data + f"\r\n--{boundary}--".encode("utf-8")
-
-                headers = {
-                    "Content-Type": f"multipart/related; boundary={boundary}",
-                    "Content-Length": str(len(body)),
-                }
-
-                url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
-                res = session.post(url, data=body, headers=headers, timeout=90)
                 if res.status_code not in (200, 201):
-                    self._handle_request_error(res)
+                    self._handle_error(res)
 
-                res_data = res.json()
-                file_id = res_data.get("id")
+                data = res.json()
+                file_id = data.get("id")
 
-                # Rendre le fichier accessible
+                # Permissions (best-effort)
                 try:
-                    perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
-                    session.post(perm_url, json={"type": "anyone", "role": "writer"}, timeout=30)
+                    async with self._client() as client:
+                        token = await self._ensure_token(client)
+                        await client.post(
+                            f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
+                            headers=self._auth_headers(token),
+                            json={"type": "anyone", "role": "writer"},
+                        )
                 except Exception:
                     pass
 
-                return res_data.get("webViewLink") or (
+                return data.get("webViewLink") or (
                     f"https://docs.google.com/spreadsheets/d/{file_id}/edit"
                     if convert
                     else f"https://drive.google.com/file/d/{file_id}/view"
                 )
 
+            except (GoogleAuthError, GooglePermissionError, GoogleQuotaError):
+                raise
             except Exception as e:
-                wait_time = 2 ** (attempt + 1)  # backoff exponentiel : 2s, 4s, 8s
+                wait = 2 ** (attempt + 1)
                 if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Réessai upload Drive ({attempt + 1}/{max_retries}) dans {wait_time}s — {type(e).__name__}: {e}"
-                    )
-                    # Invalider la session du thread pour forcer la recréation d'un socket propre
-                    _thread_local.session = None
-                    time.sleep(wait_time)
+                    logger.warning(f"Retry upload ({attempt+1}/{max_retries}) in {wait}s: {e}")
+                    import asyncio
+                    await asyncio.sleep(wait)
                 else:
-                    raise e
+                    raise
 
-    def create_folder(self, name: str, parent_id: Optional[str] = None) -> str:
-        session = self._get_session()
+    async def create_folder(self, name: str, parent_id: Optional[str] = None) -> str:
         body = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
         if parent_id:
             body["parents"] = [parent_id]
-        res = session.post(
-            "https://www.googleapis.com/drive/v3/files", json=body, timeout=60
-        )
+
+        async with self._client() as client:
+            token = await self._ensure_token(client)
+            res = await client.post(
+                "https://www.googleapis.com/drive/v3/files",
+                headers=self._auth_headers(token),
+                json=body,
+            )
+
         if res.status_code not in (200, 201):
-            self._handle_request_error(res)
+            self._handle_error(res)
         return res.json().get("id")
 
-    def get_sheet_data(self, spreadsheet_id: str, range_name: str):
-        import urllib.parse
+    # ───────────────────────── Sheets ──────────────────────────────────────
 
-        encoded_range = urllib.parse.quote(range_name)
-        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded_range}"
-        session = self._get_session()
-        res = session.get(url, timeout=60)
+    async def get_sheet_data(self, spreadsheet_id: str, range_name: str):
+        import urllib.parse
+        encoded = urllib.parse.quote(range_name)
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded}"
+
+        async with self._client() as client:
+            token = await self._ensure_token(client)
+            res = await client.get(url, headers=self._auth_headers(token))
+
         if res.status_code != 200:
-            self._handle_request_error(res)
+            self._handle_error(res)
         return res.json().get("values", [])
 
-    def update_cell(self, spreadsheet_id: str, range_name: str, value: str):
+    async def update_cell(self, spreadsheet_id: str, range_name: str, value: str):
         import urllib.parse
-
-        encoded_range = urllib.parse.quote(range_name)
+        encoded = urllib.parse.quote(range_name)
         url = (
             f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
-            f"/values/{encoded_range}?valueInputOption=RAW"
+            f"/values/{encoded}?valueInputOption=RAW"
         )
-        body = {"values": [[value]]}
 
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                session = self._get_session()
-                res = session.put(url, json=body, timeout=60)
-                if res.status_code != 200:
-                    self._handle_request_error(res)
-                return
-            except Exception as e:
-                wait_time = 2 ** (attempt + 1)
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Réessai update_cell ({attempt + 1}/{max_retries}) dans {wait_time}s — {type(e).__name__}: {e}"
+                async with self._client() as client:
+                    token = await self._ensure_token(client)
+                    res = await client.put(
+                        url,
+                        headers=self._auth_headers(token),
+                        json={"values": [[value]]},
                     )
-                    _thread_local.session = None
-                    time.sleep(wait_time)
+                if res.status_code != 200:
+                    self._handle_error(res)
+                return
+            except (GoogleAuthError, GooglePermissionError, GoogleQuotaError):
+                raise
+            except Exception as e:
+                wait = 2 ** (attempt + 1)
+                if attempt < max_retries - 1:
+                    logger.warning(f"Retry update_cell ({attempt+1}/{max_retries}) in {wait}s: {e}")
+                    import asyncio
+                    await asyncio.sleep(wait)
                 else:
-                    raise e
-
+                    raise

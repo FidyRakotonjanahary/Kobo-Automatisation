@@ -245,6 +245,8 @@ class ExportService:
     def _upload_to_drive(
         self, files: List[ExportFileResult], req: ExportRequest, task_id: Optional[str] = None
     ) -> int:
+        import asyncio
+
         drive_count = 0
         if not req.drive_folder_id:
             return drive_count
@@ -253,16 +255,18 @@ class ExportService:
         for file in files:
             # Vérifier l'annulation avant chaque fichier
             if task_id and task_monitor.is_cancelled(task_id):
-                logger.warning(f"Upload Drive interrompu pour la t\u00e2che {task_id}")
+                logger.warning(f"Upload Drive interrompu pour la tâche {task_id}")
                 break
 
             try:
                 file_name = os.path.basename(file.path)
-                google.upload_file(
-                    local_path=file.path,
-                    folder_id=req.drive_folder_id,
-                    display_name=file_name.replace(".xlsx", "").replace(".csv", ""),
-                    convert=(req.export_format == "xlsx"),
+                asyncio.run(
+                    google.upload_file(
+                        local_path=file.path,
+                        folder_id=req.drive_folder_id,
+                        display_name=file_name.replace(".xlsx", "").replace(".csv", ""),
+                        convert=(req.export_format == "xlsx"),
+                    )
                 )
                 drive_count += 1
             except Exception as e:
