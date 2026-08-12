@@ -2,18 +2,18 @@ import json
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from google.auth.transport.requests import AuthorizedSession
 
 from app.core.exceptions import GoogleAuthError, GooglePermissionError, GoogleQuotaError
 
 logger = logging.getLogger("google_service")
 
-
-import threading
 
 class GoogleService:
     def __init__(self):
@@ -52,7 +52,7 @@ class GoogleService:
             raise GoogleAuthError(detail="Token manquant ou invalide.")
 
         self.creds = creds
-        self._lock = threading.Lock()
+        self.session = AuthorizedSession(self.creds)
         
         try:
             self._drive_service = build("drive", "v3", credentials=self.creds, cache_discovery=False)
@@ -68,18 +68,17 @@ class GoogleService:
     def sheets(self):
         return self._sheets_service
 
-    def _handle_google_error(self, e: HttpError):
-        import sys
-        status = e.resp.status
-        reason = str(e)
-        details = e.content.decode('utf-8')
-        print(f"!!! GOOGLE API ERROR {status} !!!", file=sys.stderr)
-        print(f"Reason: {reason}", file=sys.stderr)
-        print(f"Details: {details}", file=sys.stderr)
-        sys.stderr.flush()
-        
-        # On log aussi pour la postérité
-        logger.error(f"!!! GOOGLE API ERROR {status} !!!")
+    def _handle_request_error(self, res):
+        status = res.status_code
+        try:
+            details = res.text
+            data = res.json()
+            reason = data.get("error", {}).get("message", res.reason)
+        except Exception:
+            reason = res.reason
+            details = res.text
+
+        logger.error(f"!!! GOOGLE HTTP ERROR {status} !!!")
         logger.error(f"Reason: {reason}")
         logger.error(f"Details: {details}")
 
@@ -94,40 +93,70 @@ class GoogleService:
                 raise Exception("Accès refusé : Le fichier est au format Excel (.xlsx). Veuillez l'ouvrir dans Google Drive et faire 'Fichier > Enregistrer au format Google Sheets' pour pouvoir l'utiliser.")
             raise Exception(f"Erreur 400 (Bad Request): {reason} - Vérifiez les paramètres (ID du fichier, nom de l'onglet).")
         if status == 404:
-            raise Exception(f"Dossier ou fichier Drive introuvable (404). Vérifiez l'ID : {spreadsheet_id if 'spreadsheet_id' in locals() else 'inconnu'}")
+            raise Exception(f"Dossier ou fichier Drive introuvable (404).")
         raise Exception(f"Erreur Google API ({status}): {reason}")
 
     def upload_file(
         self, local_path: str, folder_id: str, display_name: str, convert: bool = False
     ) -> str:
-        import time
+        import mimetypes
+        
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                with self._lock:
-                    file_metadata = {"name": display_name, "parents": [folder_id]}
-                    if convert:
-                        file_metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
-                    media = MediaFileUpload(local_path, resumable=True)
-                    file = (
-                        self.drive.files()
-                        .create(
-                            body=file_metadata,
-                            media_body=media,
-                            fields="id,webViewLink",
-                            supportsAllDrives=True,
-                        )
-                        .execute()
-                    )
-                    try:
-                        self.drive.permissions().create(
-                            fileId=file["id"], body={"type": "anyone", "role": "writer"}
-                        ).execute()
-                    except Exception:
-                        pass
-                return file["webViewLink"]
-            except HttpError as e:
-                self._handle_google_error(e)
+                metadata = {
+                    "name": display_name,
+                    "parents": [folder_id]
+                }
+                if convert:
+                    metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
+                
+                content_type, _ = mimetypes.guess_type(local_path)
+                if not content_type:
+                    content_type = "application/octet-stream"
+
+                with open(local_path, "rb") as f:
+                    file_data = f.read()
+
+                boundary = "foo_bar_baz"
+                metadata_part = (
+                    f"--{boundary}\r\n"
+                    "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+                    f"{json.dumps(metadata)}\r\n"
+                )
+                file_part_header = (
+                    f"--{boundary}\r\n"
+                    f"Content-Type: {content_type}\r\n\r\n"
+                )
+                
+                body = metadata_part.encode('utf-8') + file_part_header.encode('utf-8') + file_data + f"\r\n--{boundary}--".encode('utf-8')
+                
+                headers = {
+                    "Content-Type": f"multipart/related; boundary={boundary}",
+                    "Content-Length": str(len(body))
+                }
+                
+                url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
+                res = self.session.post(url, data=body, headers=headers)
+                if res.status_code != 200:
+                    self._handle_request_error(res)
+                
+                res_data = res.json()
+                file_id = res_data.get("id")
+                
+                # permissions
+                perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
+                perm_body = {"type": "anyone", "role": "writer"}
+                try:
+                    p_res = self.session.post(perm_url, json=perm_body)
+                    p_res.raise_for_status()
+                except Exception:
+                    pass
+                
+                return res_data.get("webViewLink") or (
+                    f"https://docs.google.com/spreadsheets/d/{file_id}/edit" if convert
+                    else f"https://drive.google.com/file/d/{file_id}/view"
+                )
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.warning(f"Réessai upload Drive ({attempt + 1}/{max_retries}) suite à : {e}")
@@ -136,52 +165,40 @@ class GoogleService:
                     raise e
 
     def create_folder(self, name: str, parent_id: Optional[str] = None) -> str:
-        try:
-            with self._lock:
-                file_metadata = {
-                    "name": name,
-                    "mimeType": "application/vnd.google-apps.folder",
-                }
-                if parent_id:
-                    file_metadata["parents"] = [parent_id]
-                file = (
-                    self.drive.files()
-                    .create(body=file_metadata, fields="id", supportsAllDrives=True)
-                    .execute()
-                )
-                return file.get("id")
-        except HttpError as e:
-            self._handle_google_error(e)
+        url = "https://www.googleapis.com/drive/v3/files"
+        body = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder"
+        }
+        if parent_id:
+            body["parents"] = [parent_id]
+        res = self.session.post(url, json=body)
+        if res.status_code != 200:
+            self._handle_request_error(res)
+        return res.json().get("id")
 
     def get_sheet_data(self, spreadsheet_id: str, range_name: str):
-        try:
-            with self._lock:
-                result = (
-                    self.sheets.spreadsheets()
-                    .values()
-                    .get(spreadsheetId=spreadsheet_id, range=range_name)
-                    .execute()
-                )
-                return result.get("values", [])
-        except HttpError as e:
-            self._handle_google_error(e)
+        import urllib.parse
+        encoded_range = urllib.parse.quote(range_name)
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded_range}"
+        res = self.session.get(url)
+        if res.status_code != 200:
+            self._handle_request_error(res)
+        return res.json().get("values", [])
 
     def update_cell(self, spreadsheet_id: str, range_name: str, value: str):
-        import time
+        import urllib.parse
+        encoded_range = urllib.parse.quote(range_name)
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded_range}?valueInputOption=RAW"
+        body = {"values": [[value]]}
+        
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                with self._lock:
-                    body = {"values": [[value]]}
-                    self.sheets.spreadsheets().values().update(
-                        spreadsheetId=spreadsheet_id,
-                        range=range_name,
-                        valueInputOption="RAW",
-                        body=body,
-                    ).execute()
+                res = self.session.put(url, json=body)
+                if res.status_code != 200:
+                    self._handle_request_error(res)
                 return
-            except HttpError as e:
-                self._handle_google_error(e)
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.warning(f"Réessai update_cell ({attempt + 1}/{max_retries}) suite à : {e}")
