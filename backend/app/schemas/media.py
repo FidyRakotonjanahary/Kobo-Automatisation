@@ -30,6 +30,7 @@ class MigrationRequest(BaseModel):
     sheet_name: Optional[str] = None
     drive_folder_id: str
     sheet_folder_mapping: Optional[Dict[str, str]] = None
+    update_links: bool = True
     google_service_account: Optional[Dict[str, Any]] = (
         None  # Optionnel, utilise le défaut serveur si absent
     )
