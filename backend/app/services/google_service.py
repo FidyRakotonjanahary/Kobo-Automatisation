@@ -9,6 +9,8 @@ from typing import Optional
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.transport.requests import AuthorizedSession
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 from app.core.exceptions import GoogleAuthError, GooglePermissionError, GoogleQuotaError
 
@@ -53,6 +55,22 @@ class GoogleService:
 
         self.creds = creds
         self.session = AuthorizedSession(self.creds)
+        self._lock = threading.Lock()
+
+        # Configuration de pools et de réessais automatiques avec urllib3
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=20,
+            max_retries=retry_strategy
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         
         try:
             self._drive_service = build("drive", "v3", credentials=self.creds, cache_discovery=False)
@@ -137,7 +155,8 @@ class GoogleService:
                 }
                 
                 url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
-                res = self.session.post(url, data=body, headers=headers)
+                with self._lock:
+                    res = self.session.post(url, data=body, headers=headers, timeout=60)
                 if res.status_code != 200:
                     self._handle_request_error(res)
                 
@@ -148,7 +167,8 @@ class GoogleService:
                 perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
                 perm_body = {"type": "anyone", "role": "writer"}
                 try:
-                    p_res = self.session.post(perm_url, json=perm_body)
+                    with self._lock:
+                        p_res = self.session.post(perm_url, json=perm_body, timeout=60)
                     p_res.raise_for_status()
                 except Exception:
                     pass
@@ -158,9 +178,11 @@ class GoogleService:
                     else f"https://drive.google.com/file/d/{file_id}/view"
                 )
             except Exception as e:
+                # Utilisation d'un backoff exponentiel pour laisser respirer l'accès réseau
+                wait_time = 2 * (attempt + 1)
                 if attempt < max_retries - 1:
-                    logger.warning(f"Réessai upload Drive ({attempt + 1}/{max_retries}) suite à : {e}")
-                    time.sleep(1)
+                    logger.warning(f"Réessai upload Drive ({attempt + 1}/{max_retries}) dans {wait_time}s suite à : {e}")
+                    time.sleep(wait_time)
                 else:
                     raise e
 
@@ -172,7 +194,8 @@ class GoogleService:
         }
         if parent_id:
             body["parents"] = [parent_id]
-        res = self.session.post(url, json=body)
+        with self._lock:
+            res = self.session.post(url, json=body, timeout=60)
         if res.status_code != 200:
             self._handle_request_error(res)
         return res.json().get("id")
@@ -181,7 +204,8 @@ class GoogleService:
         import urllib.parse
         encoded_range = urllib.parse.quote(range_name)
         url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded_range}"
-        res = self.session.get(url)
+        with self._lock:
+            res = self.session.get(url, timeout=60)
         if res.status_code != 200:
             self._handle_request_error(res)
         return res.json().get("values", [])
@@ -195,13 +219,15 @@ class GoogleService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                res = self.session.put(url, json=body)
+                with self._lock:
+                    res = self.session.put(url, json=body, timeout=60)
                 if res.status_code != 200:
                     self._handle_request_error(res)
                 return
             except Exception as e:
+                wait_time = 2 * (attempt + 1)
                 if attempt < max_retries - 1:
-                    logger.warning(f"Réessai update_cell ({attempt + 1}/{max_retries}) suite à : {e}")
-                    time.sleep(1)
+                    logger.warning(f"Réessai update_cell ({attempt + 1}/{max_retries}) dans {wait_time}s suite à : {e}")
+                    time.sleep(wait_time)
                 else:
                     raise e

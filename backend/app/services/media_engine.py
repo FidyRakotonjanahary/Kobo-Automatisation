@@ -201,6 +201,7 @@ class MediaEngine:
                         except Exception as e:
                             async with lock:
                                 report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
+                                logger.exception(f"Erreur Drive lors de la migration ligne {real_row} : {e}")
                                 global_stats["failed"] += 1
                                 global_stats["failed_items"].append({
                                     "sheet": s_name,
@@ -378,6 +379,7 @@ class MediaEngine:
                         except Exception as e:
                             async with lock:
                                 report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
+                                logger.exception(f"Erreur Drive lors de la migration Excel ligne {real_row} : {e}")
                                 global_stats["failed"] += 1
                                 global_stats["failed_items"].append({
                                     "sheet": s_name,
