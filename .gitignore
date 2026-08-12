@@ -24,6 +24,7 @@ client_secrets.json
 # Logs & Exports
 logs/
 exports/
+Exports_Kobo/
 temp_media/
 
 # OS
