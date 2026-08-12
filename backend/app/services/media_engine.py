@@ -140,7 +140,8 @@ class MediaEngine:
 
         global_stats = {"success": 0, "failed": 0, "failed_items": []}
         current_count = 0
-        sem = asyncio.Semaphore(concurrency)
+        sem = asyncio.Semaphore(concurrency)   # parallélisme download Kobo
+        drive_sem = asyncio.Semaphore(1)        # sérialisation upload Google Drive
         lock = asyncio.Lock()
 
         for s_name, s_info in sheets_data.items():
@@ -183,50 +184,52 @@ class MediaEngine:
                 async with sem:
                     download_success = await self._kobo_download_retry(url, local_path)
 
-                    if download_success:
-                        try:
+                if download_success:
+                    try:
+                        async with drive_sem:  # un seul upload Drive à la fois
                             drive_link = await asyncio.to_thread(
                                 self.google.upload_file, local_path, target_folder, display_name
                             )
-                            col_letter = self._get_column_letter(col_idx + 1)
-                            if update_links:
-                                range_at = f"'{s_name}'!{col_letter}{real_row}"
+                        col_letter = self._get_column_letter(col_idx + 1)
+                        if update_links:
+                            range_at = f"'{s_name}'!{col_letter}{real_row}"
+                            async with drive_sem:
                                 await asyncio.to_thread(
                                     self.google.update_cell, spreadsheet_id, range_at, drive_link
                                 )
-                            async with lock:
-                                global_stats["success"] += 1
-                                action = "migré" if update_links else "uploadé"
-                                report(f"✅ [{c}/{total_items}] L{real_row} [Col {col_letter}] {action} vers Drive", c, total_items)
-                        except Exception as e:
-                            async with lock:
-                                report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
-                                logger.exception(f"Erreur Drive lors de la migration ligne {real_row} : {e}")
-                                global_stats["failed"] += 1
-                                global_stats["failed_items"].append({
-                                    "sheet": s_name,
-                                    "row": real_row,
-                                    "col": col_name,
-                                    "url": url,
-                                    "reason": f"Erreur Google Drive: {str(e)}"
-                                })
-                        finally:
-                            if os.path.exists(local_path):
-                                try:
-                                    os.remove(local_path)
-                                except Exception:
-                                    pass
-                    else:
                         async with lock:
-                            report(f"⚠️ [{c}/{total_items}] Échec Kobo (L{real_row})", c, total_items)
+                            global_stats["success"] += 1
+                            action = "migré" if update_links else "uploadé"
+                            report(f"✅ [{c}/{total_items}] L{real_row} [Col {col_letter}] {action} vers Drive", c, total_items)
+                    except Exception as e:
+                        async with lock:
+                            report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
+                            logger.exception(f"Erreur Drive lors de la migration ligne {real_row} : {e}")
                             global_stats["failed"] += 1
                             global_stats["failed_items"].append({
                                 "sheet": s_name,
                                 "row": real_row,
                                 "col": col_name,
                                 "url": url,
-                                "reason": "Échec de téléchargement depuis Kobo"
+                                "reason": f"Erreur Google Drive: {str(e)}"
                             })
+                    finally:
+                        if os.path.exists(local_path):
+                            try:
+                                os.remove(local_path)
+                            except Exception:
+                                pass
+                else:
+                    async with lock:
+                        report(f"⚠️ [{c}/{total_items}] Échec Kobo (L{real_row})", c, total_items)
+                        global_stats["failed"] += 1
+                        global_stats["failed_items"].append({
+                            "sheet": s_name,
+                            "row": real_row,
+                            "col": col_name,
+                            "url": url,
+                            "reason": "Échec de téléchargement depuis Kobo"
+                        })
 
             tasks = [worker(item) for item in valid_items]
             await asyncio.gather(*tasks)
@@ -321,7 +324,8 @@ class MediaEngine:
 
         global_stats = {"success": 0, "failed": 0, "failed_items": []}
         current_count = 0
-        sem = asyncio.Semaphore(concurrency)
+        sem = asyncio.Semaphore(concurrency)   # parallélisme download Kobo
+        drive_sem = asyncio.Semaphore(1)        # sérialisation upload Google Drive
         lock = asyncio.Lock()
 
         for s_name, s_info in sheets_data.items():
@@ -365,46 +369,47 @@ class MediaEngine:
                 async with sem:
                     download_success = await self._kobo_download_retry(url, local_path)
 
-                    if download_success:
-                        try:
+                if download_success:
+                    try:
+                        async with drive_sem:  # un seul upload Drive à la fois
                             drive_link = await asyncio.to_thread(
                                 self.google.upload_file, local_path, target_folder, display_name
                             )
-                            async with lock:
-                                if update_links:
-                                    df.iat[row_idx, col_idx] = drive_link
-                                global_stats["success"] += 1
-                                action = "migré" if update_links else "uploadé"
-                                report(f"✅ [{c}/{total_items}] L{real_row} [Col '{col_name}'] {action} vers Drive", c, total_items)
-                        except Exception as e:
-                            async with lock:
-                                report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
-                                logger.exception(f"Erreur Drive lors de la migration Excel ligne {real_row} : {e}")
-                                global_stats["failed"] += 1
-                                global_stats["failed_items"].append({
-                                    "sheet": s_name,
-                                    "row": real_row,
-                                    "col": col_name,
-                                    "url": url,
-                                    "reason": f"Erreur Google Drive: {str(e)}"
-                                })
-                        finally:
-                            if os.path.exists(local_path):
-                                try:
-                                    os.remove(local_path)
-                                except Exception:
-                                    pass
-                    else:
                         async with lock:
-                            report(f"⚠️ [{c}/{total_items}] Échec Kobo (L{real_row})", c, total_items)
+                            if update_links:
+                                df.iat[row_idx, col_idx] = drive_link
+                            global_stats["success"] += 1
+                            action = "migré" if update_links else "uploadé"
+                            report(f"✅ [{c}/{total_items}] L{real_row} [Col '{col_name}'] {action} vers Drive", c, total_items)
+                    except Exception as e:
+                        async with lock:
+                            report(f"❌ [{c}/{total_items}] Erreur Drive (L{real_row}) : {e}", c, total_items)
+                            logger.exception(f"Erreur Drive lors de la migration Excel ligne {real_row} : {e}")
                             global_stats["failed"] += 1
                             global_stats["failed_items"].append({
                                 "sheet": s_name,
                                 "row": real_row,
                                 "col": col_name,
                                 "url": url,
-                                "reason": "Échec de téléchargement depuis Kobo"
+                                "reason": f"Erreur Google Drive: {str(e)}"
                             })
+                    finally:
+                        if os.path.exists(local_path):
+                            try:
+                                os.remove(local_path)
+                            except Exception:
+                                pass
+                else:
+                    async with lock:
+                        report(f"⚠️ [{c}/{total_items}] Échec Kobo (L{real_row})", c, total_items)
+                        global_stats["failed"] += 1
+                        global_stats["failed_items"].append({
+                            "sheet": s_name,
+                            "row": real_row,
+                            "col": col_name,
+                            "url": url,
+                            "reason": "Échec de téléchargement depuis Kobo"
+                        })
 
             tasks = [excel_worker(item) for item in valid_items]
             await asyncio.gather(*tasks)
