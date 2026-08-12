@@ -52,19 +52,21 @@ class GoogleService:
             raise GoogleAuthError(detail="Token manquant ou invalide.")
 
         self.creds = creds
-        self._local = threading.local()
+        self._lock = threading.Lock()
+        
+        try:
+            self._drive_service = build("drive", "v3", credentials=self.creds, cache_discovery=False)
+            self._sheets_service = build("sheets", "v4", credentials=self.creds, cache_discovery=False)
+        except Exception as e:
+            raise GoogleAuthError(detail=str(e))
 
     @property
     def drive(self):
-        if not hasattr(self._local, "drive"):
-            self._local.drive = build("drive", "v3", credentials=self.creds, cache_discovery=False)
-        return self._local.drive
+        return self._drive_service
 
     @property
     def sheets(self):
-        if not hasattr(self._local, "sheets"):
-            self._local.sheets = build("sheets", "v4", credentials=self.creds, cache_discovery=False)
-        return self._local.sheets
+        return self._sheets_service
 
     def _handle_google_error(self, e: HttpError):
         import sys
@@ -102,26 +104,27 @@ class GoogleService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                file_metadata = {"name": display_name, "parents": [folder_id]}
-                if convert:
-                    file_metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
-                media = MediaFileUpload(local_path, resumable=True)
-                file = (
-                    self.drive.files()
-                    .create(
-                        body=file_metadata,
-                        media_body=media,
-                        fields="id,webViewLink",
-                        supportsAllDrives=True,
+                with self._lock:
+                    file_metadata = {"name": display_name, "parents": [folder_id]}
+                    if convert:
+                        file_metadata["mimeType"] = "application/vnd.google-apps.spreadsheet"
+                    media = MediaFileUpload(local_path, resumable=True)
+                    file = (
+                        self.drive.files()
+                        .create(
+                            body=file_metadata,
+                            media_body=media,
+                            fields="id,webViewLink",
+                            supportsAllDrives=True,
+                        )
+                        .execute()
                     )
-                    .execute()
-                )
-                try:
-                    self.drive.permissions().create(
-                        fileId=file["id"], body={"type": "anyone", "role": "writer"}
-                    ).execute()
-                except Exception:
-                    pass
+                    try:
+                        self.drive.permissions().create(
+                            fileId=file["id"], body={"type": "anyone", "role": "writer"}
+                        ).execute()
+                    except Exception:
+                        pass
                 return file["webViewLink"]
             except HttpError as e:
                 self._handle_google_error(e)
@@ -134,30 +137,32 @@ class GoogleService:
 
     def create_folder(self, name: str, parent_id: Optional[str] = None) -> str:
         try:
-            file_metadata = {
-                "name": name,
-                "mimeType": "application/vnd.google-apps.folder",
-            }
-            if parent_id:
-                file_metadata["parents"] = [parent_id]
-            file = (
-                self.drive.files()
-                .create(body=file_metadata, fields="id", supportsAllDrives=True)
-                .execute()
-            )
-            return file.get("id")
+            with self._lock:
+                file_metadata = {
+                    "name": name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                }
+                if parent_id:
+                    file_metadata["parents"] = [parent_id]
+                file = (
+                    self.drive.files()
+                    .create(body=file_metadata, fields="id", supportsAllDrives=True)
+                    .execute()
+                )
+                return file.get("id")
         except HttpError as e:
             self._handle_google_error(e)
 
     def get_sheet_data(self, spreadsheet_id: str, range_name: str):
         try:
-            result = (
-                self.sheets.spreadsheets()
-                .values()
-                .get(spreadsheetId=spreadsheet_id, range=range_name)
-                .execute()
-            )
-            return result.get("values", [])
+            with self._lock:
+                result = (
+                    self.sheets.spreadsheets()
+                    .values()
+                    .get(spreadsheetId=spreadsheet_id, range=range_name)
+                    .execute()
+                )
+                return result.get("values", [])
         except HttpError as e:
             self._handle_google_error(e)
 
@@ -166,13 +171,14 @@ class GoogleService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                body = {"values": [[value]]}
-                self.sheets.spreadsheets().values().update(
-                    spreadsheetId=spreadsheet_id,
-                    range=range_name,
-                    valueInputOption="RAW",
-                    body=body,
-                ).execute()
+                with self._lock:
+                    body = {"values": [[value]]}
+                    self.sheets.spreadsheets().values().update(
+                        spreadsheetId=spreadsheet_id,
+                        range=range_name,
+                        valueInputOption="RAW",
+                        body=body,
+                    ).execute()
                 return
             except HttpError as e:
                 self._handle_google_error(e)
