@@ -2,6 +2,7 @@ import logging
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+import asyncio
 
 from alembic import command
 from alembic.config import Config
@@ -36,7 +37,8 @@ async def lifespan(app: FastAPI):
     # --- STARTUP ---
     logger.info("Démarrage du Backend... [RELOAD_HMR]")
     security_manager.initialize()
-    run_database_migrations()
+    # Exécuter les migrations dans un thread dédié pour ne pas bloquer ni entrer en conflit avec l'event loop FastAPI
+    await asyncio.to_thread(run_database_migrations)
     logger.info("Migrations, base de données et sécurité prêtes.")
     yield
     # --- SHUTDOWN ---

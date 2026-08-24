@@ -31,6 +31,8 @@ def _build_async_url(url: str) -> str:
     """Produit l'URL async (pour mode online)."""
     url = re.sub(r"^postgres(?:ql)?://", "postgresql+asyncpg://", url)
     url = re.sub(r"^sqlite://(?!.*aiosqlite)", "sqlite+aiosqlite://", url)
+    if "sslmode=require" in url:
+        url = url.replace("sslmode=require", "ssl=require")
     return url
 
 
@@ -82,7 +84,19 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Si une event loop tourne déjà dans ce thread (ex: appel direct synchrone),
+        # exécuter la coroutine dans une tâche ou un sous-thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(lambda: asyncio.run(run_async_migrations())).result()
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():
