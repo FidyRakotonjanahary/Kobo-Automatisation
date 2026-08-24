@@ -1,17 +1,9 @@
-databases:
-  # ── Base de Données PostgreSQL Persistante ───────────────────────────────
-  - name: kobo-automation-db
-    region: frankfurt   # Région de la base de données
-    plan: free
-    databaseName: kobo_db
-    user: kobo_user
-
 services:
   # ── Backend FastAPI (Web Service) ────────────────────────────────────────
   - type: web
     name: kobo-automation-backend
     runtime: python
-    region: frankfurt   # Région du backend
+    region: frankfurt
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -23,11 +15,9 @@ services:
         value: "false"
       - key: ENVIRONMENT
         value: production
-      # Connexion automatique à PostgreSQL Render
+      # URL de la base de données PostgreSQL Neon (à renseigner dans le dashboard Render)
       - key: DATABASE_URL
-        fromDatabase:
-          name: kobo-automation-db
-          property: connectionString
+        sync: false          # Ex: postgresql://neondb_owner:password@ep-xyz.eu-central-1.aws.neon.tech/neondb?sslmode=require
       # ⚠️ À renseigner lors de la création du Blueprint ou dans les variables d'environnement
       - key: SECRET_KEY
         sync: false          # Clé Fernet (base64)

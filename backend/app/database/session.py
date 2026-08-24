@@ -10,15 +10,18 @@ def _build_async_url(url: str) -> str:
     Convertit l'URL de base de données en URL async compatible :
     - sqlite   → sqlite+aiosqlite
     - postgres / postgresql → postgresql+asyncpg
-
-    Render fournit une URL au format : postgres://user:pass@host/db
-    SQLAlchemy nécessite : postgresql+asyncpg://user:pass@host/db
+    
+    Support de Neon (neon.tech) / Supabase / PostgreSQL cloud :
+    - Remplace le schéma par postgresql+asyncpg://
+    - asyncpg gère le paramètre ?ssl=require plutôt que ?sslmode=require
     """
     # Remplacer le schéma postgres:// ou postgresql:// → postgresql+asyncpg://
     url = re.sub(r"^postgres(?:ql)?://", "postgresql+asyncpg://", url)
     # SQLite : s'assurer qu'on utilise aiosqlite
     url = re.sub(r"^sqlite://(?!.*aiosqlite)", "sqlite+aiosqlite://", url)
-    # Si déjà préfixé correctement, ne rien changer
+    # Compatibilité SSL pour asyncpg (Neon fournit souvent sslmode=require)
+    if "sslmode=require" in url:
+        url = url.replace("sslmode=require", "ssl=require")
     return url
 
 
