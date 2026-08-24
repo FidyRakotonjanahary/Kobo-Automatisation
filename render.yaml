@@ -1,17 +1,17 @@
 databases:
   # ── Base de Données PostgreSQL Persistante ───────────────────────────────
   - name: kobo-automation-db
-    region: frankfurt   # Même région que les services
+    region: frankfurt   # Région de la base de données
     plan: free
     databaseName: kobo_db
     user: kobo_user
 
 services:
-  # ── Backend FastAPI ──────────────────────────────────────────────────────
+  # ── Backend FastAPI (Web Service) ────────────────────────────────────────
   - type: web
     name: kobo-automation-backend
     runtime: python
-    region: frankfurt
+    region: frankfurt   # Région du backend
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -40,11 +40,10 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false          # Ex: https://kobo-automation-frontend.onrender.com
 
-  # ── Frontend React/Vite (Site Statique) ──────────────────────────────────
+  # ── Frontend React/Vite (Site Statique distribué via CDN mondial) ────────
   - type: web
     name: kobo-automation-frontend
     runtime: static
-    region: frankfurt
     plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
