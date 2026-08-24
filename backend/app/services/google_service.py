@@ -1,12 +1,7 @@
 """
 GoogleService - Client Google Drive/Sheets 100% async (httpx).
-
-Pourquoi httpx au lieu de requests/AuthorizedSession ?
-- requests est synchrone : il doit être appelé via asyncio.to_thread()
-- asyncio.to_thread() crée des threads qui partagent le contexte OpenSSL de Python
-- Sur Windows, ce partage provoque des corruptions SSL (WRONG_VERSION_NUMBER, etc.)
-- httpx est natif async : toutes les connexions SSL s'exécutent dans l'event loop,
-  sans jamais toucher à un thread différent.
+Supporte la persistance du token OAuth2 en base de données (PostgreSQL / SQLite)
+avec fallback transparent sur le fichier token.json pour le développement local.
 """
 import json
 import logging
@@ -25,14 +20,50 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 def _load_creds_data() -> dict:
-    """Lit le fichier token.json et retourne son contenu."""
+    """
+    Tente de charger les identifiants OAuth Google :
+    1. Depuis la base de données (table google_tokens) via session asynchrone / thread-local
+    2. Fallback depuis token.json si existant (développement local)
+    """
+    # 1. Tentative depuis la base de données
+    try:
+        from app.database.session import AsyncSessionLocal
+        from app.repositories.google_token_repository import GoogleTokenRepository
+        import asyncio
+
+        async def _fetch_from_db():
+            async with AsyncSessionLocal() as session:
+                repo = GoogleTokenRepository(session)
+                return await repo.get_token_data()
+
+        # Si nous sommes déjà dans une event loop active
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Dans un contexte async (ex: endpoint FastAPI), on utilise une tâche ou un thread isolé
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                token_data = pool.submit(lambda: asyncio.run(_fetch_from_db())).result()
+        else:
+            token_data = asyncio.run(_fetch_from_db())
+
+        if token_data and token_data.get("refresh_token"):
+            return token_data, None
+    except Exception as e:
+        logger.debug(f"Impossible de charger le token depuis la DB ({e}), essai fallback fichier...")
+
+    # 2. Fallback token.json (local dev)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     backend_dir = os.path.dirname(os.path.dirname(current_dir))
     token_file = os.path.join(backend_dir, "token.json")
-    if not os.path.exists(token_file):
-        raise GoogleAuthError(detail="token.json introuvable.")
-    with open(token_file, "r") as f:
-        return json.load(f), token_file
+    if os.path.exists(token_file):
+        with open(token_file, "r") as f:
+            return json.load(f), token_file
+
+    raise GoogleAuthError(detail="Token Google introuvable en base de données et token.json absent.")
 
 
 class GoogleService:
@@ -42,7 +73,6 @@ class GoogleService:
     """
 
     def __init__(self):
-        print("--- INITIALISATION GOOGLE SERVICE (httpx async) ---", file=sys.stderr)
         self._data, self._token_file = _load_creds_data()
         self._access_token: Optional[str] = self._data.get("token")
         self._refresh_token: str = self._data.get("refresh_token", "")
@@ -53,7 +83,7 @@ class GoogleService:
     # ───────────────────────── Auth helpers ────────────────────────────────
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
-        """Retourne (et rafraichit si nécessaire) l'access token."""
+        """Retourne (et rafraîchit si nécessaire) l'access token."""
         if self._access_token and time.time() < self._token_expiry - 60:
             return self._access_token
 
@@ -74,12 +104,30 @@ class GoogleService:
 
         payload = res.json()
         self._access_token = payload["access_token"]
-        self._token_expiry = time.time() + payload.get("expires_in", 3600)
+        expires_in = payload.get("expires_in", 3600)
+        self._token_expiry = time.time() + expires_in
 
-        # Persister le nouveau token
-        self._data["token"] = self._access_token
-        with open(self._token_file, "w") as f:
-            json.dump(self._data, f)
+        # Persister le nouveau token en base de données
+        try:
+            from app.database.session import AsyncSessionLocal
+            from app.repositories.google_token_repository import GoogleTokenRepository
+            from datetime import datetime, timedelta
+
+            expiry_dt = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+            async with AsyncSessionLocal() as session:
+                repo = GoogleTokenRepository(session)
+                await repo.update_access_token(self._access_token, expiry_dt)
+        except Exception as err:
+            logger.warning(f"Impossible de persister le token rafraîchi en base : {err}")
+
+        # Fallback écriture fichier si token_file était utilisé
+        if self._token_file and os.path.exists(self._token_file):
+            try:
+                self._data["token"] = self._access_token
+                with open(self._token_file, "w") as f:
+                    json.dump(self._data, f)
+            except Exception:
+                pass
 
         return self._access_token
 
