@@ -58,6 +58,7 @@ export interface ExportResult {
   files: ExportFileResult[];
   directory?: string;
   drive_success?: number;
+  drive_errors?: string[];
 }
 
 export interface PreviewResult {

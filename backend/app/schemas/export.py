@@ -45,6 +45,7 @@ class ExportResult(BaseModel):
     message: str
     files: List[ExportFileResult]
     drive_success: int
+    drive_errors: List[str] = []
 
 
 class PreviewResult(BaseModel):

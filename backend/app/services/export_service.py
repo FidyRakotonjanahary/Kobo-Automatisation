@@ -102,7 +102,7 @@ class ExportService:
                 return ExportResult(status="success", message="Exportation annul\u00e9e par l'utilisateur.", files=[], drive_success=0)
 
             files = self._export_files(raw_files)
-            drive_count = self._upload_to_drive(files, req, task_id)
+            drive_count, drive_errors = self._upload_to_drive(files, req, task_id)
             total_rows = sum(file.rows for file in files)
 
             message = f"Export termin\u00e9 : {len(files)} fichiers ({total_rows} lignes)."
@@ -111,6 +111,7 @@ class ExportService:
                 message=message,
                 files=files,
                 drive_success=drive_count,
+                drive_errors=drive_errors,
             )
         except Exception as e:
             logger.error(f"Frayeur export: {e}")
@@ -244,14 +245,24 @@ class ExportService:
 
     def _upload_to_drive(
         self, files: List[ExportFileResult], req: ExportRequest, task_id: Optional[str] = None
-    ) -> int:
+    ) -> tuple[int, List[str]]:
         import asyncio
 
         drive_count = 0
-        if not req.drive_folder_id:
-            return drive_count
+        drive_errors: List[str] = []
 
-        google = GoogleService()
+        if not req.drive_folder_id:
+            return drive_count, drive_errors
+
+        # Instanciation de GoogleService ici pour capturer les erreurs d'auth immédiatement
+        try:
+            google = GoogleService()
+        except Exception as e:
+            error_msg = f"Connexion Google échouée : {e}"
+            logger.error(error_msg)
+            drive_errors.append(error_msg)
+            return drive_count, drive_errors
+
         for file in files:
             # Vérifier l'annulation avant chaque fichier
             if task_id and task_monitor.is_cancelled(task_id):
@@ -271,8 +282,11 @@ class ExportService:
                 file.drive_link = link
                 drive_count += 1
             except Exception as e:
-                logger.error(f"Erreur upload Drive pour {file.site}: {e}")
-        return drive_count
+                error_msg = f"Upload Drive échoué pour « {file.site} » : {e}"
+                logger.error(error_msg)
+                drive_errors.append(error_msg)
+
+        return drive_count, drive_errors
 
     def _export_files(
         self, files: Sequence[Mapping[str, object]]
