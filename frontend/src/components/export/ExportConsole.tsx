@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import { Activity, AlertTriangle, CheckCircle, Download, ExternalLink, FileSpreadsheet } from 'lucide-react';
+import { getApiBaseUrl } from '../../api/client';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
 
 interface ExportConsoleProps {
@@ -13,7 +14,7 @@ interface ExportConsoleProps {
  */
 function downloadFile(filePath: string, fileName: string) {
   const encoded = encodeURIComponent(filePath);
-  const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+  const baseURL = getApiBaseUrl();
   const url = `${baseURL}/exports/download?path=${encoded}`;
 
   const a = document.createElement('a');

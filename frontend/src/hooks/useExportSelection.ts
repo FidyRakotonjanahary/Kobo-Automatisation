@@ -265,7 +265,10 @@ export const useExportSelection = () => {
           const res = await api.get<KoboForm[]>(`/kobo/forms/${id}`);
           setAccountFormsMap(prev => ({ ...prev, [id]: res.data }));
         } catch {
-          toast.error("Erreur chargement compte.");
+          toast.error("Erreur chargement compte.", { id: `account-error-${id}` });
+          // Marquer comme vide et désélectionner pour éviter la boucle infinie de requêtes 404
+          setAccountFormsMap(prev => ({ ...prev, [id]: [] }));
+          setSelectedAccountIds(prev => prev.filter(x => x !== id));
         } finally {
           setLoadingAccountIds(prev => prev.filter(x => x !== id));
         }

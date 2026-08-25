@@ -89,14 +89,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
+# Routes principales (avec préfixe /api standard)
 app.include_router(health_router, prefix="/api", tags=["System"])
 app.include_router(kobo_router, prefix="/api/kobo", tags=["Kobo"])
 app.include_router(exports_router, prefix="/api/exports", tags=["Exports"])
 app.include_router(media_router, prefix="/api/media", tags=["Media"])
 app.include_router(google_auth_router, prefix="/api/google", tags=["Google Auth"])
 
+# Routes de fallback sans préfixe /api (au cas où les requêtes arrivent directement sur /kobo, /exports, etc.)
+app.include_router(health_router, tags=["System Fallback"], include_in_schema=False)
+app.include_router(kobo_router, prefix="/kobo", tags=["Kobo Fallback"], include_in_schema=False)
+app.include_router(exports_router, prefix="/exports", tags=["Exports Fallback"], include_in_schema=False)
+app.include_router(media_router, prefix="/media", tags=["Media Fallback"], include_in_schema=False)
+app.include_router(google_auth_router, prefix="/google", tags=["Google Auth Fallback"], include_in_schema=False)
+
 
 @app.get("/")
 async def root():
     return {"message": f"Welcome to {settings.APP_NAME}", "docs": "/docs"}
+
