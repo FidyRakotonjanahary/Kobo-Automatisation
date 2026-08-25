@@ -73,11 +73,18 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Middleware CORS
-allowed_origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+# Normalisation robuste : supprime les espaces et les trailing slashes éventuels (ex: 'https://site.com/' -> 'https://site.com')
+parsed_origins = [o.strip().rstrip("/") for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+# Si '*' est présent, désactiver allow_credentials pour respecter la spécification CORS
+is_wildcard = "*" in parsed_origins
+allowed_origins = ["*"] if is_wildcard else parsed_origins
+
+logger.info(f"CORS Allowed Origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=not is_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
