@@ -260,7 +260,7 @@ class ExportService:
 
             try:
                 file_name = os.path.basename(file.path)
-                asyncio.run(
+                link = asyncio.run(
                     google.upload_file(
                         local_path=file.path,
                         folder_id=req.drive_folder_id,
@@ -268,6 +268,7 @@ class ExportService:
                         convert=(req.export_format == "xlsx"),
                     )
                 )
+                file.drive_link = link
                 drive_count += 1
             except Exception as e:
                 logger.error(f"Erreur upload Drive pour {file.site}: {e}")

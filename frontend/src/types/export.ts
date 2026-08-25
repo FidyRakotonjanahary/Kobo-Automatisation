@@ -49,6 +49,7 @@ export interface ExportFileResult {
   path: string;
   folder_path: string;
   rows: number;
+  drive_link?: string;
 }
 
 export interface ExportResult {

@@ -37,6 +37,7 @@ class ExportFileResult(BaseModel):
     path: str
     folder_path: str
     rows: int
+    drive_link: Optional[str] = None
 
 
 class ExportResult(BaseModel):
