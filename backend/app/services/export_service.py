@@ -102,7 +102,7 @@ class ExportService:
                 return ExportResult(status="success", message="Exportation annul\u00e9e par l'utilisateur.", files=[], drive_success=0)
 
             files = self._export_files(raw_files)
-            drive_count, drive_errors = self._upload_to_drive(files, req, task_id)
+            drive_count, drive_errors = await self._upload_to_drive(files, req, task_id)
             total_rows = sum(file.rows for file in files)
 
             message = f"Export termin\u00e9 : {len(files)} fichiers ({total_rows} lignes)."
@@ -243,11 +243,9 @@ class ExportService:
 
         return await KoboService.fetch_and_merge_exports_multi(cred_uid_pairs)
 
-    def _upload_to_drive(
+    async def _upload_to_drive(
         self, files: List[ExportFileResult], req: ExportRequest, task_id: Optional[str] = None
     ) -> tuple[int, List[str]]:
-        import asyncio
-
         drive_count = 0
         drive_errors: List[str] = []
 
@@ -271,13 +269,11 @@ class ExportService:
 
             try:
                 file_name = os.path.basename(file.path)
-                link = asyncio.run(
-                    google.upload_file(
-                        local_path=file.path,
-                        folder_id=req.drive_folder_id,
-                        display_name=file_name.replace(".xlsx", "").replace(".csv", ""),
-                        convert=(req.export_format == "xlsx"),
-                    )
+                link = await google.upload_file(
+                    local_path=file.path,
+                    folder_id=req.drive_folder_id,
+                    display_name=file_name.replace(".xlsx", "").replace(".csv", ""),
+                    convert=(req.export_format == "xlsx"),
                 )
                 file.drive_link = link
                 drive_count += 1

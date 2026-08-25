@@ -19,71 +19,96 @@ logger = logging.getLogger("google_service")
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
-def _load_creds_data() -> dict:
-    """
-    Tente de charger les identifiants OAuth Google :
-    1. Depuis la base de données (table google_tokens) via session asynchrone / thread-local
-    2. Fallback depuis token.json si existant (développement local)
-    """
-    # 1. Tentative depuis la base de données
-    try:
-        from app.database.session import AsyncSessionLocal
-        from app.repositories.google_token_repository import GoogleTokenRepository
-        import asyncio
-
-        async def _fetch_from_db():
-            async with AsyncSessionLocal() as session:
-                repo = GoogleTokenRepository(session)
-                return await repo.get_token_data()
-
-        # Si nous sommes déjà dans une event loop active
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # Dans un contexte async (ex: endpoint FastAPI), on utilise une tâche ou un thread isolé
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                token_data = pool.submit(lambda: asyncio.run(_fetch_from_db())).result()
-        else:
-            token_data = asyncio.run(_fetch_from_db())
-
-        if token_data and token_data.get("refresh_token"):
-            return token_data, None
-    except Exception as e:
-        logger.debug(f"Impossible de charger le token depuis la DB ({e}), essai fallback fichier...")
-
-    # 2. Fallback token.json (local dev)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    backend_dir = os.path.dirname(os.path.dirname(current_dir))
-    token_file = os.path.join(backend_dir, "token.json")
-    if os.path.exists(token_file):
-        with open(token_file, "r") as f:
-            return json.load(f), token_file
-
-    raise GoogleAuthError(detail="Token Google introuvable en base de données et token.json absent.")
-
-
 class GoogleService:
     """
     Client Google Drive/Sheets entièrement asynchrone basé sur httpx.
-    Chaque méthode est un coroutine (async def) — aucun thread n'est utilisé.
+    Chaque méthode est une coroutine (async def) — aucun thread ni boucle bloquante n'est utilisé.
     """
 
     def __init__(self):
-        self._data, self._token_file = _load_creds_data()
-        self._access_token: Optional[str] = self._data.get("token")
-        self._refresh_token: str = self._data.get("refresh_token", "")
-        self._client_id: str = self._data.get("client_id", "")
-        self._client_secret: str = self._data.get("client_secret", "")
+        self._data: Optional[dict] = None
+        self._token_file: Optional[str] = None
+        self._access_token: Optional[str] = None
+        self._refresh_token: str = ""
+        self._client_id: str = ""
+        self._client_secret: str = ""
         self._token_expiry: float = 0.0  # Toujours refresher au premier appel
+
+        # Tentative immédiate non-bloquante de lecture fichier local si disponible
+        self._try_load_local_token_file()
+
+    def _try_load_local_token_file(self) -> None:
+        """Lecture non bloquante du token.json si présent en local."""
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            backend_dir = os.path.dirname(os.path.dirname(current_dir))
+            token_file = os.path.join(backend_dir, "token.json")
+            if os.path.exists(token_file):
+                with open(token_file, "r") as f:
+                    data = json.load(f)
+                    if data and data.get("refresh_token"):
+                        self._data = data
+                        self._token_file = token_file
+                        self._access_token = data.get("token")
+                        self._refresh_token = data.get("refresh_token", "")
+                        self._client_id = data.get("client_id", "")
+                        self._client_secret = data.get("client_secret", "")
+        except Exception as e:
+            logger.debug(f"Fichier token local non chargé : {e}")
+
+    async def _load_creds_async(self) -> None:
+        """
+        Charge les identifiants OAuth Google :
+        1. Depuis la base de données (table google_tokens) via session asynchrone
+        2. Fallback depuis token.json si existant (développement local)
+        """
+        # 1. Tentative depuis la base de données
+        try:
+            from app.database.session import AsyncSessionLocal
+            from app.repositories.google_token_repository import GoogleTokenRepository
+
+            async with AsyncSessionLocal() as session:
+                repo = GoogleTokenRepository(session)
+                token_data = await repo.get_token_data()
+                if token_data and token_data.get("refresh_token"):
+                    self._data = token_data
+                    self._token_file = None
+                    self._access_token = token_data.get("token")
+                    self._refresh_token = token_data.get("refresh_token", "")
+                    self._client_id = token_data.get("client_id", "")
+                    self._client_secret = token_data.get("client_secret", "")
+                    return
+        except Exception as e:
+            logger.debug(f"Impossible de charger le token depuis la DB ({e}), essai fallback fichier...")
+
+        # 2. Fallback token.json (local dev)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        backend_dir = os.path.dirname(os.path.dirname(current_dir))
+        token_file = os.path.join(backend_dir, "token.json")
+        if os.path.exists(token_file):
+            try:
+                with open(token_file, "r") as f:
+                    data = json.load(f)
+                    if data and data.get("refresh_token"):
+                        self._data = data
+                        self._token_file = token_file
+                        self._access_token = data.get("token")
+                        self._refresh_token = data.get("refresh_token", "")
+                        self._client_id = data.get("client_id", "")
+                        self._client_secret = data.get("client_secret", "")
+                        return
+            except Exception as err:
+                logger.debug(f"Erreur lecture fallback token.json : {err}")
+
+        raise GoogleAuthError(detail="Token Google introuvable en base de données et token.json absent. Veuillez vous connecter avec Google.")
 
     # ───────────────────────── Auth helpers ────────────────────────────────
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
-        """Retourne (et rafraîchit si nécessaire) l'access token."""
+        """Retourne (et rafraîchit si nécessaire) l'access token de façon 100% asynchrone."""
+        if not self._refresh_token:
+            await self._load_creds_async()
+
         if self._access_token and time.time() < self._token_expiry - 60:
             return self._access_token
 
@@ -123,9 +148,10 @@ class GoogleService:
         # Fallback écriture fichier si token_file était utilisé
         if self._token_file and os.path.exists(self._token_file):
             try:
-                self._data["token"] = self._access_token
-                with open(self._token_file, "w") as f:
-                    json.dump(self._data, f)
+                if self._data:
+                    self._data["token"] = self._access_token
+                    with open(self._token_file, "w") as f:
+                        json.dump(self._data, f)
             except Exception:
                 pass
 
