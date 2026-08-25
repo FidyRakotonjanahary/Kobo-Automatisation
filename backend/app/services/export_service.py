@@ -18,6 +18,7 @@ from app.schemas.export import (
     OpenFileResult,
     PreviewResult,
     PreviewSitesResult,
+    SubmissionItem,
 )
 from app.services.export_engine import ExportEngine
 from app.services.google_service import GoogleService
@@ -80,6 +81,7 @@ class ExportService:
                     export_format=req.export_format,
                     csv_params=csv_params,
                     task_id=task_id,
+                    filter_submission_ids=req.filter_submission_ids,
                 )
             else:
                 merged_dfs = await KoboService.fetch_and_merge_exports_multi(
@@ -95,6 +97,7 @@ class ExportService:
                     export_format=req.export_format,
                     csv_params=csv_params,
                     task_id=task_id,
+                    filter_submission_ids=req.filter_submission_ids,
                 )
 
             # Vérification après filtrage (avant upload)
@@ -192,10 +195,77 @@ class ExportService:
             # Tri stable : Principal d'abord, puis les autres
             sorted_sheets = [main_sheet_actual] + [s for s in sheets if s != main_sheet_actual]
             
+            # Extraction des soumissions individuelles pour l'aperçu et le filtrage granulaire
+            submissions = []
+            main_df = merged_dfs[main_sheet_actual]
+            if not main_df.empty:
+                id_col = None
+                for candidate in ["_uuid", "_id", "_submission__uuid", "_submission__id", "KEY", "_index"]:
+                    if candidate in main_df.columns:
+                        id_col = candidate
+                        break
+
+                time_col = None
+                for candidate in ["_submission_time", "_submission__submission_time", "start", "end", "today", "date"]:
+                    if candidate in main_df.columns:
+                        time_col = candidate
+                        break
+
+                label_candidates = [
+                    c for c in main_df.columns
+                    if any(k in str(c).lower() for k in [
+                        "repondant", "respondent", "chef_menage", "nom_du_chef",
+                        "nom_prenom", "nom", "prenom", "name", "enqueteur",
+                        "interviewer", "agent", "beneficiaire", "village",
+                        "fokontany", "commune", "code_menage", "code"
+                    ]) and not str(c).startswith("_") and not any(ign in str(c).lower() for ign in ["device", "simserial", "phonenumber", "formhub", "meta", "instance"])
+                ]
+
+                pivot_matched = None
+                if req.pivot_column:
+                    target_norm = req.pivot_column.replace("_", " ").strip().lower()
+                    for col in main_df.columns:
+                        if str(col).replace("_", " ").strip().lower() == target_norm:
+                            pivot_matched = col
+                            break
+
+                def _fmt_time(v):
+                    if v is None or pd.isna(v):
+                        return ""
+                    try:
+                        return pd.to_datetime(v).strftime("%d/%m/%Y %H:%M")
+                    except Exception:
+                        return str(v).split(".")[0].replace("T", " ")
+
+                for _, row in main_df.iterrows():
+                    sub_id = str(row[id_col]).strip() if id_col and pd.notna(row.get(id_col)) else ""
+                    if not sub_id:
+                        continue
+
+                    sub_time = _fmt_time(row.get(time_col)) if time_col else ""
+                    sub_site = TextNormalizer.normalize(str(row.get(pivot_matched))) if pivot_matched and pd.notna(row.get(pivot_matched)) else ""
+
+                    label_parts = []
+                    for lc in label_candidates[:3]:
+                        val = row.get(lc)
+                        if val is not None and pd.notna(val) and str(val).strip():
+                            label_parts.append(str(val).strip())
+                    sub_label = " - ".join(label_parts) if label_parts else f"Soumission #{sub_id[:8]}"
+
+                    submissions.append(
+                        SubmissionItem(
+                            id=sub_id,
+                            submission_time=sub_time,
+                            site=sub_site,
+                            label=sub_label,
+                        )
+                    )
+
             return PreviewSitesResult(
                 sites=sites, 
-                sheets=sorted_sheets, # On renvoie TOUJOURS la liste pour la stabilité de l'UI
-                columns=all_columns_list
+                sheets=sorted_sheets,
+                columns=all_columns_list,
+                submissions=submissions,
             )
         except Exception as e:
             logger.error(f"Erreur preview-sites: {e}")

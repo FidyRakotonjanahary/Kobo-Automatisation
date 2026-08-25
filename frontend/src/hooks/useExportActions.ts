@@ -66,6 +66,7 @@ export const useExportActions = (selection: ExportSelectionState) => {
       selected_columns: selection.selectedColumnsForExport,
       selected_sheets: selection.selectedSheets,
       filter_sites: selection.pivot ? selection.selectedSites : undefined,
+      filter_submission_ids: selection.selectedSubmissionIds.length > 0 ? selection.selectedSubmissionIds : undefined,
       drive_folder_id: driveFolderId.trim() || undefined,
       export_format: selection.exportFormat,
       csv_separator: selection.csvSeparator,

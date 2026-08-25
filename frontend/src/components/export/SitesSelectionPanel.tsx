@@ -6,8 +6,8 @@ interface SitesSelectionPanelProps {
 }
 
 export const SitesSelectionPanel = ({ form }: SitesSelectionPanelProps) => (
-  <>
-    <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+  <div className="flex flex-col h-full bg-white">
+    <div className="px-6 py-3.5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
       <div className="flex items-center gap-3">
         <div className="p-2 bg-indigo-100 rounded-lg">
           <LayoutGrid size={16} className="text-indigo-600" />
@@ -54,6 +54,6 @@ export const SitesSelectionPanel = ({ form }: SitesSelectionPanelProps) => (
         </div>
       )}
     </div>
-  </>
+  </div>
 );
 

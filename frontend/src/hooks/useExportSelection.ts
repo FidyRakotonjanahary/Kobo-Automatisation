@@ -11,6 +11,7 @@ import type {
   ExportFormat,
   FormStructure,
   PreviewSitesResult,
+  SubmissionItem,
 } from '../types/export';
 
 const REQUIRED_MAIN_COLUMNS = ['_id', '_index', '_uuid', '_submission_time', '_parent_index'];
@@ -31,6 +32,8 @@ export const useExportSelection = () => {
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [availableSites, setAvailableSites] = useState<string[]>([]);
   const [selectedSites, setSelectedSites] = useState<string[]>([]);
+  const [availableSubmissions, setAvailableSubmissions] = useState<SubmissionItem[]>([]);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<string[]>([]);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
@@ -103,6 +106,10 @@ export const useExportSelection = () => {
       });
       const columns = Array.isArray(res.data.columns) ? res.data.columns.map(String) : [];
       applyMainExportColumns(columns, resetSelection);
+      if (res.data.submissions && res.data.submissions.length > 0) {
+        setAvailableSubmissions(res.data.submissions);
+        setSelectedSubmissionIds(res.data.submissions.map(s => s.id));
+      }
     } catch {
       toast.error("Erreur chargement colonnes export.");
     } finally {
@@ -115,6 +122,8 @@ export const useExportSelection = () => {
     setFormStructure(null);
     setMainExportColumns([]);
     setAvailableSites([]);
+    setAvailableSubmissions([]);
+    setSelectedSubmissionIds([]);
     setPivot('');
     setSelectedSheets([]);
     setSelectedColumns([]);
@@ -167,10 +176,36 @@ export const useExportSelection = () => {
       applyMainExportColumns(columns);
       setAvailableSites(res.data.sites || []);
       setSelectedSites(res.data.sites || []);
+      const subs = res.data.submissions || [];
+      setAvailableSubmissions(subs);
+      setSelectedSubmissionIds(subs.map(s => s.id));
     } catch {
-      toast.error("Erreur d\u00e9tection sites.");
+      toast.error("Erreur détection sites.");
     } finally {
       setLoadingSites(false);
+    }
+  };
+
+  const toggleSubmission = (id: string) => {
+    setSelectedSubmissionIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllSubmissions = (idsToSelect?: string[]) => {
+    if (idsToSelect && idsToSelect.length > 0) {
+      setSelectedSubmissionIds(prev => Array.from(new Set([...prev, ...idsToSelect])));
+    } else {
+      setSelectedSubmissionIds(availableSubmissions.map(s => s.id));
+    }
+  };
+
+  const deselectSubmissions = (idsToDeselect?: string[]) => {
+    if (idsToDeselect && idsToDeselect.length > 0) {
+      const set = new Set(idsToDeselect);
+      setSelectedSubmissionIds(prev => prev.filter(id => !set.has(id)));
+    } else {
+      setSelectedSubmissionIds([]);
     }
   };
 
@@ -292,6 +327,8 @@ export const useExportSelection = () => {
     loadingColumns,
     availableSites,
     selectedSites,
+    availableSubmissions,
+    selectedSubmissionIds,
     selectedSheets,
     selectedColumns,
     loadingSites,
@@ -310,6 +347,10 @@ export const useExportSelection = () => {
     toggleMainColumn,
     selectAllMainColumns,
     deselectOptionalMainColumns,
+    toggleSubmission,
+    selectAllSubmissions,
+    deselectSubmissions,
+    setSelectedSubmissionIds,
     buildAccountForms,
     applyMainExportColumns,
     fetchActualColumns,

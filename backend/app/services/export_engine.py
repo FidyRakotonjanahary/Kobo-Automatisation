@@ -179,6 +179,7 @@ class ExportEngine:
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
         task_id: Optional[str] = None,
+        filter_submission_ids: Optional[List[str]] = None,
     ):
         """Pipeline depuis un fichier Excel brut (compte unique)."""
         dfs = pd.read_excel(io.BytesIO(excel_content), sheet_name=None)
@@ -192,6 +193,7 @@ class ExportEngine:
             export_format,
             csv_params,
             task_id,
+            filter_submission_ids,
         )
 
     def run_pipeline_from_dfs(
@@ -205,6 +207,7 @@ class ExportEngine:
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
         task_id: Optional[str] = None,
+        filter_submission_ids: Optional[List[str]] = None,
     ):
         """Pipeline depuis des DataFrames déjà fusionnés (multi-comptes)."""
         return self._run(
@@ -217,6 +220,7 @@ class ExportEngine:
             export_format,
             csv_params,
             task_id,
+            filter_submission_ids,
         )
 
     def _run(
@@ -230,6 +234,7 @@ class ExportEngine:
         export_format: str = "xlsx",
         csv_params: Optional[Dict[str, str]] = None,
         task_id: Optional[str] = None,
+        filter_submission_ids: Optional[List[str]] = None,
     ):
 
         logger.info(
@@ -335,11 +340,11 @@ class ExportEngine:
             def match_in_group(val):
                 return TextNormalizer.normalize(str(val)) in group_sites
 
-            if matched_pivot_col in main_df.columns:
+            if matched_pivot_col and matched_pivot_col in main_df.columns:
                 # Pivot classique dans l'onglet principal
                 site_main_df = main_df[main_df[matched_pivot_col].apply(match_in_group)]
                 valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
-            else:
+            elif matched_pivot_col and source_df is not None:
                 # Pivot dans un onglet enfant (Repeat Group)
                 anchor_df = source_df[source_df[matched_pivot_col].apply(match_in_group)]
                 if "_parent_index" in anchor_df.columns:
@@ -354,6 +359,26 @@ class ExportEngine:
                 
                 site_main_df = site_main_df.copy()
                 site_main_df[pivot_column] = site_display
+            else:
+                site_main_df = main_df.copy()
+                valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
+
+            # --- FILTRAGE PAR SOUMISSIONS SÉLECTIONNÉES (SI SPÉCIFIÉ) ---
+            if filter_submission_ids:
+                filter_id_set = {str(x).strip() for x in filter_submission_ids if str(x).strip()}
+                if filter_id_set:
+                    id_col = None
+                    for candidate in ["_uuid", "_id", "_submission__uuid", "_submission__id", "KEY"]:
+                        if candidate in site_main_df.columns:
+                            id_col = candidate
+                            break
+                    if id_col:
+                        site_main_df = site_main_df[site_main_df[id_col].astype(str).str.strip().isin(filter_id_set)]
+                    elif "_index" in site_main_df.columns:
+                        site_main_df = site_main_df[site_main_df["_index"].astype(str).str.strip().isin(filter_id_set)]
+
+                    # Mettre à jour valid_indices après filtrage granulaire des soumissions
+                    valid_indices = site_main_df["_index"].apply(lambda x: str(x).split(".")[0]).tolist() if "_index" in site_main_df.columns else []
 
             site_export_main = site_main_df.copy()
 

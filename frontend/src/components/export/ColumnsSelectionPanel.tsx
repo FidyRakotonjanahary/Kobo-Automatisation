@@ -9,26 +9,26 @@ export const ColumnsSelectionPanel = ({ form }: ColumnsSelectionPanelProps) => {
   if (form.mainSheetColumns.length === 0) return null;
 
   return (
-    <div className="border-t border-gray-100 bg-gray-50/50">
-      <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between gap-4">
+    <div className="flex flex-col h-full bg-white">
+      <div className="px-6 py-3.5 border-b border-gray-100 flex items-center justify-between gap-4 bg-gray-50/50">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-2 bg-white border border-gray-100 rounded-lg shadow-sm">
-            <Settings2 size={15} className="text-gray-500" />
+          <div className="p-2 bg-indigo-100 rounded-lg">
+            <Settings2 size={16} className="text-indigo-600" />
           </div>
           <div className="min-w-0">
-            <span className="text-[13px] font-bold text-gray-900 flex items-center gap-2">
+            <span className="text-[14px] font-bold text-gray-900 flex items-center gap-2">
               Colonnes premier onglet ({form.selectedMainColumnCount}/{form.mainSheetColumns.length})
-              {form.loadingColumns && <RefreshCw size={11} className="text-violet-500 animate-spin shrink-0" />}
+              {form.loadingColumns && <RefreshCw size={11} className="text-indigo-500 animate-spin shrink-0" />}
             </span>
             <p className="text-[10px] text-gray-400 font-medium truncate">{form.mainSheet?.name}</p>
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
           <button onClick={form.selectAllMainColumns} className="btn-secondary-linear !h-7 !text-[10px] uppercase tracking-wider">Tout cocher</button>
-          <button onClick={form.deselectOptionalMainColumns} className="btn-secondary-linear !h-7 !text-[10px] uppercase tracking-wider">Tout d{"\u00e9"}cocher</button>
+          <button onClick={form.deselectOptionalMainColumns} className="btn-secondary-linear !h-7 !text-[10px] uppercase tracking-wider">Tout décocher</button>
         </div>
       </div>
-      <div className="max-h-[210px] overflow-y-auto p-4 custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
           {form.mainSheetColumns.map((column, index) => {
             const required = form.isRequiredMainColumn(column);

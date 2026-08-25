@@ -9,6 +9,13 @@ class AccountFormPair(BaseModel):
     form_uid: str = Field(..., min_length=1, description="UID du formulaire Kobo")
 
 
+class SubmissionItem(BaseModel):
+    id: str
+    submission_time: Optional[str] = ""
+    site: Optional[str] = ""
+    label: Optional[str] = ""
+
+
 class ExportRequest(BaseModel):
     account_forms: List[AccountFormPair] = Field(..., min_length=1)
     form_name: str
@@ -16,6 +23,7 @@ class ExportRequest(BaseModel):
     selected_columns: Optional[List[str]] = None
     selected_sheets: Optional[List[str]] = None
     filter_sites: Optional[List[str]] = None
+    filter_submission_ids: Optional[List[str]] = None
     drive_folder_id: Optional[str] = None
     export_format: str = "xlsx"
     csv_separator: str = ";"
@@ -56,6 +64,7 @@ class PreviewSitesResult(BaseModel):
     sites: List[str]
     sheets: List[str]
     columns: List[str]
+    submissions: List[SubmissionItem] = []
 
 
 class OpenFileRequest(BaseModel):

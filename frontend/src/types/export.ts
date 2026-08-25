@@ -20,6 +20,13 @@ export interface AccountFormPair {
   form_uid: string;
 }
 
+export interface SubmissionItem {
+  id: string;
+  submission_time?: string;
+  site?: string;
+  label?: string;
+}
+
 export interface ExportRequest {
   account_forms: AccountFormPair[];
   form_name: string;
@@ -27,6 +34,7 @@ export interface ExportRequest {
   selected_columns?: string[];
   selected_sheets?: string[];
   filter_sites?: string[];
+  filter_submission_ids?: string[];
   drive_folder_id?: string;
   export_format: ExportFormat;
   csv_separator: CsvSeparator;
@@ -69,6 +77,7 @@ export interface PreviewSitesResult {
   sites?: string[];
   sheets?: string[];
   columns?: unknown[];
+  submissions?: SubmissionItem[];
 }
 
 export interface CsvPrefs {
