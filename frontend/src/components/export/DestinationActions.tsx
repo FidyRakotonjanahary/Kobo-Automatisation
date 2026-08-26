@@ -52,11 +52,19 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => {
             {/* Feedback visuel : affiche l'ID extrait si l'utilisateur a collé une URL */}
             {hasValue && (
               <div className="flex items-center gap-1.5 px-1">
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isUrl ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                <p className="text-[8px] font-mono truncate text-white/40">
-                  {isUrl
-                    ? `ID extrait : ${extractedId}`
-                    : `ID : ${extractedId}`}
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isUrl ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                <p className="text-[9px] font-mono truncate text-gray-500">
+                  {isUrl ? (
+                    <>
+                      <span className="font-semibold text-gray-700">ID extrait : </span>
+                      <span className="text-indigo-600 font-bold">{extractedId}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-gray-700">ID : </span>
+                      <span className="text-emerald-600 font-bold">{extractedId}</span>
+                    </>
+                  )}
                 </p>
               </div>
             )}
@@ -71,7 +79,7 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => {
                   className={`flex-1 py-1 rounded text-[9px] font-bold border transition-all ${
                     form.csvSeparator === ';'
                       ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                      : 'bg-white border-gray-250 text-gray-400 hover:border-gray-200'
+                      : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
                   }`}
                 >
                   POINT-VIRGULE (;)
@@ -82,7 +90,7 @@ export const DestinationActions = ({ form }: DestinationActionsProps) => {
                   className={`flex-1 py-1 rounded text-[9px] font-bold border transition-all ${
                     form.csvSeparator === ','
                       ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                      : 'bg-white border-gray-250 text-gray-400 hover:border-gray-200'
+                      : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
                   }`}
                 >
                   VIRGULE (,)

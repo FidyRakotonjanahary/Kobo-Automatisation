@@ -59,7 +59,7 @@ const ExportPage = () => {
                   {form.selectedSubmissionIds.length}/{form.availableSubmissions.length}
                 </span>
               )}
-              {form.availableSites.length > 0 && (
+              {form.pivot !== '' && form.availableSites.length > 0 && (
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
                     activeTab === 'submissions'

@@ -27,7 +27,7 @@ export const FormSheetSelector = ({ form }: FormSheetSelectorProps) => (
             value={form.selectedFormName}
             onChange={e => { void form.fetchStructure(e.target.value); }}
           >
-            <option value="">{form.loadingAccountIds.length > 0 ? 'Chargement des formulaires...' : 'S\u00e9lectionner le formulaire'}</option>
+            <option value="">{form.loadingAccountIds.length > 0 ? 'Chargement des formulaires...' : 'Sélectionner le formulaire'}</option>
             {form.commonForms.map(f => <option key={f.uid} value={f.name}>{f.name}</option>)}
           </select>
           {form.loadingAccountIds.length > 0 && (
@@ -48,7 +48,7 @@ export const FormSheetSelector = ({ form }: FormSheetSelectorProps) => (
           <div className="bg-violet-50/60 border border-violet-100 rounded-lg p-2 animate-in fade-in slide-in-from-top-1 duration-300">
             <p className="text-[10px] text-violet-600 font-medium flex items-center gap-2">
               <RefreshCw className="animate-spin" size={10} />
-              Lecture des colonnes export{"\u00e9"}es...
+              Lecture des colonnes exportées...
             </p>
           </div>
         )}
@@ -57,7 +57,7 @@ export const FormSheetSelector = ({ form }: FormSheetSelectorProps) => (
       <div className="space-y-1.5 animate-in fade-in duration-300">
         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-tight flex items-center gap-1.5">
           <Layers size={11} className="text-indigo-400" />
-          Onglet(s) {"\u00e0"} exporter
+          Onglet(s) à exporter
         </label>
         <div className="border border-gray-200 rounded-lg bg-white overflow-y-auto max-h-[100px] px-1 py-1 space-y-0.5 custom-scrollbar bg-gray-50/30">
           {form.formStructure?.sheets.length ? (
@@ -74,7 +74,7 @@ export const FormSheetSelector = ({ form }: FormSheetSelectorProps) => (
               </label>
             ))
           ) : (
-            <p className="text-[10px] text-gray-400 italic p-2 text-center">Aucun onglet charg{"\u00e9"}</p>
+            <p className="text-[10px] text-gray-400 italic p-2 text-center">Aucun onglet chargé</p>
           )}
         </div>
         {form.exportFormat === 'csv' && form.selectedSheets.length > 0 && (
