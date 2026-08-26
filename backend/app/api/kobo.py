@@ -5,8 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.repositories.credential_repository import CredentialRepository
-from app.schemas.kobo import KoboAccountCreate, KoboAccountRead, KoboFormRead
+from app.schemas.kobo import (
+    KoboAccountCreate,
+    KoboAccountRead,
+    KoboAccountUpdate,
+    KoboFormRead,
+)
 from app.services.kobo_service import KoboService
+from fastapi import Body
 
 router = APIRouter()
 
@@ -31,6 +37,23 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
     return await repo.get_accounts()
 
 
+@router.put("/accounts/{account_id}", response_model=KoboAccountRead)
+async def update_account(
+    account_id: int = Path(..., gt=0),
+    data: KoboAccountUpdate = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Met à jour un compte Kobo existant. Le mot de passe/API Key est optionnel
+    (conservé s'il est omis ou vide).
+    """
+    repo = CredentialRepository(db)
+    updated = await repo.update_account(account_id, data)
+    if not updated:
+        raise HTTPException(404, "Compte non trouvé")
+    return updated
+
+
 @router.get("/test/{account_id}")
 async def test_kobo_connection(
     account_id: int = Path(..., gt=0), db: AsyncSession = Depends(get_db)
@@ -38,8 +61,11 @@ async def test_kobo_connection(
     repo = CredentialRepository(db)
     acc = await get_account_or_404(repo, account_id)
 
-    success = await KoboService.test_connection(acc)
-    return {"status": "success" if success else "failed"}
+    success, message = await KoboService.test_connection(acc)
+    return {
+        "status": "success" if success else "failed",
+        "message": message,
+    }
 
 
 @router.get("/forms/{account_id}", response_model=List[KoboFormRead])

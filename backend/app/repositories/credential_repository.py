@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from app.core.security import security_manager
 from app.models.credential import Credential
 from app.models.export_history import ExportHistory
-from app.schemas.kobo import KoboAccountCreate
+from app.schemas.kobo import KoboAccountCreate, KoboAccountUpdate
 
 
 class CredentialRepository:
@@ -36,6 +36,24 @@ class CredentialRepository:
             select(Credential).filter(Credential.id == account_id)
         )
         return result.scalar_one_or_none()
+
+    async def update_account(
+        self, account_id: int, data: KoboAccountUpdate
+    ) -> Optional[Credential]:
+        account = await self.get_account(account_id)
+        if not account:
+            return None
+        if data.name is not None and data.name.strip():
+            account.name = data.name.strip()
+        if data.base_url is not None and data.base_url.strip():
+            account.base_url = data.base_url.strip()
+        if data.username is not None and data.username.strip():
+            account.username = data.username.strip()
+        if data.password is not None and data.password.strip():
+            account.encrypted_password = security_manager.encrypt(data.password.strip())
+        await self.db.commit()
+        await self.db.refresh(account)
+        return account
 
     async def delete_by_id(self, account_id: int) -> bool:
         account = await self.get_account(account_id)

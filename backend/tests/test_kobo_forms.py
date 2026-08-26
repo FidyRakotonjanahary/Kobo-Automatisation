@@ -76,5 +76,43 @@ class TestKoboForms(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_test_connection_success_and_failures(self):
+        async def run_test():
+            fake_cred = MagicMock(spec=Credential)
+            fake_cred.base_url = "https://kf.kobotoolbox.org"
+            fake_cred.username = "test_user"
+            fake_cred.encrypted_password = b"dummy"
+
+            # Case 1: Success 200
+            mock_200 = MagicMock()
+            mock_200.status_code = 200
+
+            with patch("app.services.kobo_service.security_manager.decrypt", return_value="plain_pass"):
+                with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+                    mock_get.return_value = mock_200
+                    success, message = await KoboService.test_connection(fake_cred)
+                    self.assertTrue(success)
+                    self.assertIn("succès", message)
+
+            # Case 2: 401 Unauthorized
+            mock_401 = MagicMock()
+            mock_401.status_code = 401
+
+            with patch("app.services.kobo_service.security_manager.decrypt", return_value="plain_pass"):
+                with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+                    mock_get.return_value = mock_401
+                    success, message = await KoboService.test_connection(fake_cred)
+                    self.assertFalse(success)
+                    self.assertIn("invalides", message)
+
+        asyncio.run(run_test())
+
+    def test_account_update_schema(self):
+        from app.schemas.kobo import KoboAccountUpdate
+        update_data = KoboAccountUpdate(name="Nouveau Nom", password=None)
+        self.assertEqual(update_data.name, "Nouveau Nom")
+        self.assertIsNone(update_data.password)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,13 @@ class KoboAccountCreate(BaseModel):
     password: str
 
 
+class KoboAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None  # None ou vide = ne pas changer le mot de passe
+
+
 class KoboAccountRead(BaseModel):
     id: int
     name: str

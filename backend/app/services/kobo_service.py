@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import pandas as pd
@@ -26,20 +26,14 @@ class KoboService:
     }
 
     @staticmethod
-    def _is_downloadable_xls_export(export: Dict[str, Any]) -> bool:
-        if not export.get("result"):
-            return False
-
-        export_type = export.get("type")
-        export_settings = export.get("export_settings") or export.get("data") or {}
+    def _is_xls_export(export_settings: Any, export_type: Optional[str]) -> bool:
         settings_type = (
             export_settings.get("type") if isinstance(export_settings, dict) else None
         )
         return export_type in (None, "xls") or settings_type == "xls"
 
     @staticmethod
-    @retry_with_backoff(retries=2, exceptions=(httpx.HTTPError,))
-    async def test_connection(credential: Credential) -> bool:
+    async def test_connection(credential: Credential) -> Tuple[bool, str]:
         password = security_manager.decrypt(credential.encrypted_password)
         try:
             async with httpx.AsyncClient(
@@ -48,10 +42,21 @@ class KoboService:
                 timeout=10.0,
             ) as client:
                 response = await client.get("/api/v2/assets/?format=json")
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True, "Connexion établie avec succès avec l'instance KoboToolbox."
+                elif response.status_code in (401, 403):
+                    return False, "Identifiants invalides (nom d'utilisateur ou mot de passe/API Key incorrect)."
+                elif response.status_code == 404:
+                    return False, f"URL d'instance introuvable ({credential.base_url})."
+                else:
+                    return False, f"Erreur serveur Kobo HTTP {response.status_code}."
+        except httpx.TimeoutException:
+            return False, "Délai d'attente dépassé : le serveur Kobo ne répond pas."
+        except httpx.ConnectError:
+            return False, f"Impossible d'établir la connexion avec l'instance ({credential.base_url})."
         except Exception as e:
             logger.error(f"Test connexion échoué: {e}")
-            return False
+            return False, f"Erreur de connexion : {str(e)}"
 
     @staticmethod
     @retry_with_backoff(
