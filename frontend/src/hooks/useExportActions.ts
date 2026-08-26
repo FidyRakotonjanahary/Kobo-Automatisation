@@ -7,6 +7,7 @@ import type {
   ExportRequest,
   ExportResult,
   GoogleStatus,
+  SessionExportItem,
 } from '../types/export';
 import { normalizeCsvEncoding, useExportSelection } from './useExportSelection';
 
@@ -15,24 +16,67 @@ type ApiErrorBody = { message?: string };
 
 export const useExportActions = (selection: ExportSelectionState) => {
   const [result, setResult] = useState<ExportResult | null>(null);
+  const [exportHistory, setExportHistory] = useState<SessionExportItem[]>([]);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [driveFolderId, setDriveFolderId] = useState('');
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
   const exportMutation = useMutation<AxiosResponse<ExportResult>, AxiosError<ApiErrorBody>, ExportRequest>({
     mutationFn: (data) => api.post<ExportResult>('/exports/run', data),
-    onSuccess: (res) => {
+    onSuccess: (res, variables) => {
       setResult(res.data);
-      if (res.data.message.includes('annul')) {
+      const isCancelled = res.data.message?.toLowerCase().includes('annul') ?? false;
+      if (isCancelled) {
         toast.error('Exportation interrompue.');
       } else {
         toast.success('Export terminé avec succès');
       }
       setCurrentTaskId(null);
+
+      const timeStr = new Date().toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      const newEntry: SessionExportItem = {
+        id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        timestamp: timeStr,
+        formName: variables.form_name,
+        format: variables.export_format,
+        status: isCancelled ? 'cancelled' : 'success',
+        message: res.data.message,
+        files: res.data.files || [],
+        directory: res.data.directory,
+        driveSuccess: res.data.drive_success,
+        driveErrors: res.data.drive_errors,
+      };
+
+      setExportHistory(prev => [newEntry, ...prev]);
     },
-    onError: (err) => {
-      toast.error(err.response?.data?.message || "Erreur pendant l'export.");
+    onError: (err, variables) => {
+      const errMsg = err.response?.data?.message || "Erreur pendant l'export.";
+      toast.error(errMsg);
       setCurrentTaskId(null);
+
+      const timeStr = new Date().toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      const newEntry: SessionExportItem = {
+        id: `exp_err_${Date.now()}`,
+        timestamp: timeStr,
+        formName: variables.form_name,
+        format: variables.export_format,
+        status: 'error',
+        message: errMsg,
+        files: [],
+        errorMessage: errMsg,
+      };
+
+      setExportHistory(prev => [newEntry, ...prev]);
     },
   });
 
@@ -86,13 +130,20 @@ export const useExportActions = (selection: ExportSelectionState) => {
     }
   };
 
+  const clearExportHistory = () => {
+    setExportHistory([]);
+    setResult(null);
+  };
+
   return {
     result,
+    exportHistory,
     googleConnected,
     driveFolderId,
     exportMutation,
     handleRun,
     handleCancel,
+    clearExportHistory,
     setDriveFolderId,
   };
 };

@@ -31,8 +31,8 @@ const ExportPage = () => {
         <DestinationActions form={form} />
       </div>
 
-      {/* ── Panneau principal (Onglets + Console de sortie) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 pt-4">
+      {/* ── Panneau principal (Onglets + Résultats des exports) ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] lg:grid-cols-[1fr_350px] gap-6 pt-4">
         <div className="surface-panel overflow-hidden flex flex-col h-[700px]">
           {/* Barre d'onglets ergonomique : 2 onglets fusionnés et optimisés */}
           <div className="px-6 pt-3 bg-gray-50/80 border-b border-gray-100 flex items-center gap-2">

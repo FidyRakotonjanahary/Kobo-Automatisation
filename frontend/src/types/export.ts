@@ -69,6 +69,20 @@ export interface ExportResult {
   drive_errors?: string[];
 }
 
+export interface SessionExportItem {
+  id: string;
+  timestamp: string;
+  formName: string;
+  format: ExportFormat;
+  status: 'success' | 'cancelled' | 'error';
+  message: string;
+  files: ExportFileResult[];
+  directory?: string;
+  driveSuccess?: number;
+  driveErrors?: string[];
+  errorMessage?: string;
+}
+
 export interface PreviewResult {
   preview: string;
 }

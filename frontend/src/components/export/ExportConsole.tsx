@@ -1,7 +1,21 @@
 import type { RefObject } from 'react';
-import { Activity, AlertTriangle, CheckCircle, Download, ExternalLink, FileSpreadsheet } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  FolderDown,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import { getApiBaseUrl } from '../../api/client';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
+import type { SessionExportItem } from '../../types/export';
 
 interface ExportConsoleProps {
   consoleRef: RefObject<HTMLDivElement>;
@@ -10,7 +24,7 @@ interface ExportConsoleProps {
 
 /**
  * Déclenche le téléchargement direct d'un fichier exporté depuis le serveur.
- * Crée un lien <a> temporaire avec l'URL de l'endpoint /exports/download.
+ * Crée un lien <a> temporaire pointant vers l'URL de l'endpoint /exports/download.
  */
 function downloadFile(filePath: string, fileName: string) {
   const encoded = encodeURIComponent(filePath);
@@ -26,134 +40,300 @@ function downloadFile(filePath: string, fileName: string) {
 }
 
 export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
-  const driveErrors = form.result?.drive_errors ?? [];
-  const driveSuccessCount = form.result?.drive_success ?? 0;
+  const isPending = form.exportMutation.isPending;
+  const history = form.exportHistory || [];
+  const hasHistory = history.length > 0;
 
   return (
-    <div className="console-wrapper h-[660px]">
-      <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02] flex items-center gap-3">
-        <div className={`w-2.5 h-2.5 rounded-full ${form.exportMutation.isPending ? 'bg-indigo-500 animate-pulse' : 'bg-emerald-500'}`} />
-        <span className="text-[11px] font-black text-white/50 uppercase tracking-[0.2em]">Console de Sortie</span>
+    <div className="surface-panel overflow-hidden flex flex-col h-[700px] bg-white border border-gray-200 rounded-lg shadow-sm">
+      {/* ── En-tête : Résultats des exports ── */}
+      <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`w-2.5 h-2.5 rounded-full transition-colors ${
+              isPending
+                ? 'bg-indigo-600 animate-ping'
+                : hasHistory
+                ? 'bg-emerald-500'
+                : 'bg-gray-300'
+            }`}
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-bold text-gray-900">
+              Résultats des exports
+            </span>
+            {hasHistory && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                {history.length}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Action : Effacer l'historique de la session */}
+        {hasHistory && !isPending && (
+          <button
+            type="button"
+            onClick={form.clearExportHistory}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+            title="Effacer l'historique des exports de cette session"
+          >
+            <Trash2 size={12} />
+            <span>Effacer</span>
+          </button>
+        )}
       </div>
-      <div ref={consoleRef} className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar custom-scrollbar-dark font-mono text-[11px] leading-relaxed">
-        {!form.exportMutation.isPending && !form.result && (
-          <div className="text-center py-40 opacity-10 flex flex-col items-center">
-            <Activity size={48} strokeWidth={1} className="text-white mb-4" />
-            <p className="uppercase tracking-[0.4em] text-white">Standby</p>
+
+      {/* ── Corps de l'historique / États ── */}
+      <div
+        ref={consoleRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50/40"
+      >
+        {/* ── 1. Carte Export en cours ── */}
+        {isPending && (
+          <div className="bg-indigo-50/90 border border-indigo-200 rounded-xl p-4 space-y-3 shadow-xs animate-in fade-in duration-300">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw size={15} className="text-indigo-600 animate-spin" />
+                <span className="text-[12px] font-bold text-indigo-900">
+                  Exportation en cours…
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold uppercase bg-indigo-200/60 text-indigo-800">
+                {form.exportFormat}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-indigo-700/90 leading-snug">
+              Fusion et génération des fichiers en cours pour{' '}
+              <strong className="font-semibold text-indigo-950">
+                {form.selectedFormName || 'le formulaire sélectionné'}
+              </strong>
+              .
+            </p>
+
+            {/* Barre de progression fluide */}
+            <div className="h-1.5 w-full bg-indigo-200/50 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-600 rounded-full animate-[indeterminate_1.8s_ease-in-out_infinite]" />
+            </div>
           </div>
         )}
-        {form.exportMutation.isPending && (
-          <div className="space-y-3 animate-pulse">
-            <p className="text-indigo-400">{" [SYSTEM] Initialisation de la fusion..."}</p>
-            <p className="text-white/60">{" [PARAMS] Format : " + form.exportFormat.toUpperCase()}</p>
-            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 animate-[indeterminate_2s_infinite]"></div>
-            </div>
-          </div>
-        )}
-        {form.result && (
-          <div className="space-y-4 animate-in fade-in zoom-in-95 duration-500">
-            {/* En-tête résultat */}
-            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold uppercase tracking-widest text-[10px]">
-                <CheckCircle size={14} /> Opération terminée
-              </div>
-              {/* Bouton de téléchargement rapide si un seul fichier */}
-              {form.result.files.length === 1 && (
-                <button
-                  onClick={() => {
-                    const f = form.result!.files[0];
-                    const fileName = f.path.split(/[/\\]/).pop() ?? 'export';
-                    downloadFile(f.path, fileName);
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500 text-indigo-400 hover:text-white border border-indigo-500/20 rounded-full transition-all text-[10px] font-bold uppercase tracking-tighter"
-                >
-                  <Download size={12} />
-                  Télécharger
-                </button>
-              )}
+
+        {/* ── 2. État vide accueillant (aucun export dans la session) ── */}
+        {!isPending && !hasHistory && (
+          <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+            <div className="w-16 h-16 bg-indigo-50/90 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 ring-1 ring-indigo-100 shadow-xs">
+              <FolderDown size={28} strokeWidth={1.75} />
             </div>
 
-            {/* Liste des fichiers */}
-            <div className="grid gap-2">
-              {form.result.files.map((f, i) => (
-                <div key={i} className="p-3 bg-white/[0.03] border border-white/5 rounded-lg group transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white/5 p-2 rounded-lg group-hover:bg-emerald-500/20 transition-colors shrink-0">
-                      <FileSpreadsheet size={14} className="text-white/40 group-hover:text-emerald-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-bold text-white/90 truncate uppercase tracking-tight italic">{f.site}</p>
-                      <p className="text-[9px] text-indigo-400/70 truncate font-mono mt-0.5">{f.path.split(/[/\\]/).pop()}</p>
-                      <p className="text-[10px] text-white/40 mt-1">{f.rows} soumissions traitées</p>
-                    </div>
-                    {/* Actions par fichier */}
-                    <div className="flex flex-col gap-1.5 shrink-0">
-                      {/* 1️⃣ Téléchargement direct */}
-                      <button
-                        onClick={() => {
-                          const fileName = f.path.split(/[/\\]/).pop() ?? 'export';
-                          downloadFile(f.path, fileName);
-                        }}
-                        title="Télécharger le fichier"
-                        className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500 text-indigo-400 hover:text-white border border-indigo-500/20 rounded-full transition-all text-[9px] font-bold uppercase tracking-tighter whitespace-nowrap"
-                      >
-                        <Download size={10} />
-                        Télécharger
-                      </button>
-                      {/* 2️⃣ Lien Drive (seulement si upload réussi pour ce fichier) */}
-                      {f.drive_link && (
-                        <a
-                          href={f.drive_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Ouvrir dans Google Drive"
-                          className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-white border border-emerald-500/20 rounded-full transition-all text-[9px] font-bold uppercase tracking-tighter whitespace-nowrap"
-                        >
-                          <ExternalLink size={10} />
-                          Drive
-                        </a>
-                      )}
-                    </div>
-                  </div>
+            <h3 className="text-[14px] font-bold text-gray-800">
+              Prêt pour l'exportation
+            </h3>
+
+            <p className="text-[11px] text-gray-500 mt-1.5 max-w-[280px] leading-relaxed">
+              Configurez vos options à gauche et cliquez sur{' '}
+              <strong className="text-gray-700 font-semibold">
+                « Lancer l'Export »
+              </strong>
+              . Les fichiers générés, liens de téléchargement et accès Google
+              Drive apparaîtront ici.
+            </p>
+
+            {/* Aperçu rapide de la configuration prête */}
+            {form.selectedFormName && (
+              <div className="mt-5 p-3 rounded-lg bg-white border border-gray-200/80 shadow-xs max-w-[280px] w-full text-left space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-tight">
+                  <Sparkles size={11} className="text-indigo-500" />
+                  Prêt à exporter
                 </div>
-              ))}
-            </div>
-
-            {/* Résumé Drive succès */}
-            {driveSuccessCount > 0 && driveErrors.length === 0 && (
-              <div className="p-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg flex items-center gap-2 text-[9px] text-emerald-400 font-bold uppercase tracking-tighter">
-                <ExternalLink size={10} />
-                {driveSuccessCount} fichier(s) envoyé(s) sur Google Drive. Cliquez sur &quot;Drive&quot; pour ouvrir.
-              </div>
-            )}
-
-            {/* ⚠️ Erreurs Drive — visibles clairement dans la console */}
-            {driveErrors.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-amber-400 font-bold uppercase tracking-widest text-[9px]">
-                  <AlertTriangle size={12} />
-                  {driveSuccessCount > 0
-                    ? `${driveSuccessCount} envoi(s) réussi(s), ${driveErrors.length} échec(s) Drive :`
-                    : `Échec de l'envoi vers Google Drive :`}
-                </div>
-                {driveErrors.map((err, i) => (
-                  <div
-                    key={i}
-                    className="p-2 bg-amber-500/5 border border-amber-500/20 rounded-lg text-[9px] text-amber-300/80 font-mono break-all leading-relaxed"
-                  >
-                    <span className="text-amber-400 font-bold mr-1.5">[DRIVE ERROR]</span>
-                    {err}
-                  </div>
-                ))}
-                <p className="text-[8px] text-white/30 italic px-1">
-                  Vérifiez que le compte Google est connecté et que le dossier Drive est accessible.
+                <p className="text-[11px] font-semibold text-gray-900 truncate">
+                  {form.selectedFormName}
                 </p>
+                <div className="flex items-center gap-2 pt-1 border-t border-gray-100 text-[10px] text-gray-500">
+                  <span className="px-1.5 py-0.5 rounded bg-gray-100 font-mono font-bold uppercase text-gray-700 text-[9px]">
+                    {form.exportFormat}
+                  </span>
+                  <span>
+                    {form.selectedSheets.length} onglet(s) sélectionné(s)
+                  </span>
+                </div>
               </div>
             )}
           </div>
         )}
+
+        {/* ── 3. Liste empilée des exports précédents (plus récents en haut) ── */}
+        {history.map((item, index) => (
+          <ExportHistoryCard key={item.id || index} item={item} />
+        ))}
       </div>
     </div>
   );
 };
+
+interface ExportHistoryCardProps {
+  item: SessionExportItem;
+}
+
+/**
+ * Carte individuelle représentant un export réalisé pendant la session.
+ */
+const ExportHistoryCard = ({ item }: ExportHistoryCardProps) => {
+  const isSuccess = item.status === 'success';
+  const isCancelled = item.status === 'cancelled';
+  const isError = item.status === 'error';
+  const driveErrors = item.driveErrors ?? [];
+  const driveSuccessCount = item.driveSuccess ?? 0;
+
+  return (
+    <div className="bg-white border border-gray-200/90 rounded-xl p-3.5 space-y-3 shadow-xs hover:border-indigo-200 transition-all">
+      {/* En-tête de la carte */}
+      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-gray-100">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isSuccess && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <CheckCircle2 size={11} className="text-emerald-600" />
+                Export réussi
+              </span>
+            )}
+            {isCancelled && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                <AlertTriangle size={11} className="text-amber-600" />
+                Interrompu
+              </span>
+            )}
+            {isError && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                <XCircle size={11} className="text-red-600" />
+                Échec
+              </span>
+            )}
+
+            <span className="px-1.5 py-0.2 rounded font-mono font-bold text-[9px] uppercase bg-gray-100 text-gray-700 border border-gray-200">
+              {item.format}
+            </span>
+          </div>
+
+          <p
+            className="text-[12px] font-bold text-gray-900 truncate pt-0.5"
+            title={item.formName}
+          >
+            {item.formName}
+          </p>
+        </div>
+
+        {/* Timestamp */}
+        <div className="flex items-center gap-1 text-[10px] font-mono text-gray-400 shrink-0">
+          <Clock size={11} />
+          <span>{item.timestamp}</span>
+        </div>
+      </div>
+
+      {/* Message d'erreur global si présent */}
+      {item.errorMessage && (
+        <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 text-[10px] text-red-700 leading-relaxed">
+          <AlertCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
+          <span>{item.errorMessage}</span>
+        </div>
+      )}
+
+      {/* Liste des fichiers générés */}
+      {item.files && item.files.length > 0 && (
+        <div className="space-y-2">
+          {item.files.map((file, fIdx) => {
+            const fileName = file.path.split(/[/\\]/).pop() ?? 'export';
+            return (
+              <div
+                key={fIdx}
+                className="p-2.5 bg-slate-50/80 hover:bg-slate-50 border border-gray-200/80 rounded-lg flex items-center justify-between gap-2.5 transition-colors"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                    <FileSpreadsheet size={14} />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p
+                      className="text-[11px] font-bold text-gray-900 truncate"
+                      title={file.site || fileName}
+                    >
+                      {file.site || fileName}
+                    </p>
+                    <div className="flex items-center gap-2 text-[9px] text-gray-500 font-mono">
+                      <span className="truncate max-w-[120px]" title={fileName}>
+                        {fileName}
+                      </span>
+                      <span>•</span>
+                      <span className="text-gray-400 font-sans">
+                        {file.rows} ligne(s)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Boutons d'action par fichier */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Téléchargement direct */}
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(file.path, fileName)}
+                    title="Télécharger directement ce fichier"
+                    className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[10px] font-semibold transition-colors shadow-xs"
+                  >
+                    <Download size={11} />
+                    <span>Télécharger</span>
+                  </button>
+
+                  {/* Lien Drive si disponible */}
+                  {file.drive_link && (
+                    <a
+                      href={file.drive_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Ouvrir dans Google Drive"
+                      className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold transition-colors"
+                    >
+                      <ExternalLink size={11} />
+                      <span>Drive</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Résumé Drive succès */}
+      {driveSuccessCount > 0 && driveErrors.length === 0 && (
+        <div className="p-2 bg-emerald-50/70 border border-emerald-200/60 rounded-lg flex items-center gap-2 text-[10px] text-emerald-800 font-medium">
+          <ExternalLink size={12} className="text-emerald-600 shrink-0" />
+          <span>
+            {driveSuccessCount} fichier(s) synchronisé(s) sur Google Drive.
+          </span>
+        </div>
+      )}
+
+      {/* Avertissement / Erreurs Drive */}
+      {driveErrors.length > 0 && (
+        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1 text-[10px] text-amber-900 leading-relaxed">
+          <div className="flex items-center gap-1.5 font-bold text-amber-800 text-[10px]">
+            <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+            <span>
+              {driveSuccessCount > 0
+                ? `${driveSuccessCount} envoyé(s), ${driveErrors.length} échec(s) Drive :`
+                : "Échec de synchronisation Google Drive :"}
+            </span>
+          </div>
+          {driveErrors.map((err, errIdx) => (
+            <p key={errIdx} className="font-mono text-[9px] text-amber-800/90 break-all pl-4">
+              • {err}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
