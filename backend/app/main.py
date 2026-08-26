@@ -37,6 +37,30 @@ async def lifespan(app: FastAPI):
     # --- STARTUP ---
     logger.info("Démarrage du Backend... [RELOAD_HMR]")
     security_manager.initialize()
+
+    # Diagnostic de configuration DB
+    db_url = settings.DATABASE_URL
+    if "sqlite" in db_url:
+        if settings.is_render:
+            logger.critical(
+                "🚨 PRODUCTION RENDER : SQLite détecté ! "
+                "Le disque est éphémère, les comptes Kobo seront PERDUS au prochain redéploiement. "
+                "Configurez DATABASE_URL avec votre URL PostgreSQL Neon dans les variables d'environnement Render."
+            )
+        else:
+            logger.info("Base de données : SQLite locale (développement).")
+    else:
+        logger.info(f"Base de données : PostgreSQL cloud (persistante). Environnement: {settings.ENVIRONMENT}")
+
+    if not security_manager.is_persistent:
+        logger.warning(
+            "🚨 SECRET_KEY non configurée ! Clé Fernet temporaire en mémoire. "
+            "Les comptes seront indéchiffrables après redémarrage. "
+            "Définissez SECRET_KEY dans les variables d'environnement Render."
+        )
+    else:
+        logger.info("Chiffrement AES-256 : clé persistante active.")
+
     # Exécuter les migrations dans un thread dédié pour ne pas bloquer ni entrer en conflit avec l'event loop FastAPI
     await asyncio.to_thread(run_database_migrations)
     logger.info("Migrations, base de données et sécurité prêtes.")

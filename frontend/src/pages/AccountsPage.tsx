@@ -243,6 +243,17 @@ const AccountsPage = () => {
     queryFn: () => api.get('/kobo/accounts').then(res => res.data)
   });
 
+  // Diagnostic de santé backend : DB persistante ? clé secrète configurée ?
+  const { data: healthData } = useQuery<{
+    database: { type: string; host: string; persistent: boolean };
+    security: { secret_key_configured: boolean; key_persistent: boolean };
+    is_render: boolean;
+  }>({
+    queryKey: ['health'],
+    queryFn: () => api.get('/health').then(res => res.data),
+    staleTime: 60_000,
+  });
+
   const [expandedAccountIds, setExpandedAccountIds] = useState<Set<number>>(new Set());
 
   const toggleAccountExpand = (id: number) => {
@@ -345,6 +356,49 @@ const AccountsPage = () => {
             <span>Sécurisé</span>
         </div>
       </div>
+
+      {/* Bannière de diagnostic : DB non-persistante (SQLite sur Render) */}
+      {healthData && !healthData.database.persistent && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+          <div>
+            <p className="font-semibold">⚠️ Base de données éphémère détectée</p>
+            <p className="mt-1 text-red-700">
+              Le backend utilise <strong>SQLite</strong> sur Render (disque éphémère). Tous les comptes
+              Kobo seront <strong>perdus à chaque redéploiement</strong>.
+            </p>
+            <p className="mt-1 text-red-700">
+              👉 Allez dans votre tableau de bord Render → <em>Environment Variables</em> → ajoutez{' '}
+              <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs">DATABASE_URL</code>{' '}
+              avec votre URL PostgreSQL Neon.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Bannière de diagnostic : SECRET_KEY non configurée */}
+      {healthData && !healthData.security.key_persistent && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+          <div>
+            <p className="font-semibold">⚠️ Clé de chiffrement temporaire</p>
+            <p className="mt-1 text-amber-700">
+              La variable{' '}
+              <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">SECRET_KEY</code>{' '}
+              n&apos;est pas configurée. Les mots de passe Kobo sont chiffrés avec une clé aléatoire
+              générée à chaque démarrage.{' '}
+              <strong>Les comptes ne seront plus déchiffrables après un redéploiement.</strong>
+            </p>
+            <p className="mt-1 text-amber-700">
+              👉 Générez une clé Fernet stable :{' '}
+              <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">
+                python -c &quot;from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())&quot;
+              </code>{' '}
+              et ajoutez-la comme variable <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">SECRET_KEY</code> sur Render.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Mini Form */}
       <div className="surface-panel p-5 space-y-4">

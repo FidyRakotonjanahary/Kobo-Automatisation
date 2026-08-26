@@ -21,6 +21,7 @@ if config.config_file_name is not None:
 
 def _build_sync_url(url: str) -> str:
     """Produit l'URL synchrone (pour mode offline et psycopg2)."""
+    url = url.strip()
     url = re.sub(r"^postgresql\+asyncpg://", "postgresql://", url)
     url = re.sub(r"^sqlite\+aiosqlite://", "sqlite://", url)
     url = re.sub(r"^postgres://", "postgresql://", url)
@@ -29,10 +30,14 @@ def _build_sync_url(url: str) -> str:
 
 def _build_async_url(url: str) -> str:
     """Produit l'URL async (pour mode online)."""
+    url = url.strip()
     url = re.sub(r"^postgres(?:ql)?://", "postgresql+asyncpg://", url)
     url = re.sub(r"^sqlite://(?!.*aiosqlite)", "sqlite+aiosqlite://", url)
-    if "sslmode=require" in url:
-        url = url.replace("sslmode=require", "ssl=require")
+    if "postgresql+asyncpg://" in url:
+        url = re.sub(r"sslmode=[^&]+", "ssl=require", url)
+        if "ssl=" not in url and not any(h in url for h in ["localhost", "127.0.0.1", "host.docker.internal"]):
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}ssl=require"
     return url
 
 
