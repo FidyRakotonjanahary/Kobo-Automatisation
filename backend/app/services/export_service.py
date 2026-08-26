@@ -229,6 +229,16 @@ class ExportService:
                             pivot_matched = col
                             break
 
+                # Tri par date décroissante par défaut (la plus récente en premier)
+                if time_col and time_col in main_df.columns:
+                    try:
+                        temp_time = pd.to_datetime(main_df[time_col], errors='coerce')
+                        main_df = main_df.assign(_temp_sort_time=temp_time).sort_values(
+                            by='_temp_sort_time', ascending=False, na_position='last'
+                        ).drop(columns=['_temp_sort_time'])
+                    except Exception:
+                        pass
+
                 def _fmt_time(v):
                     if v is None or pd.isna(v):
                         return ""

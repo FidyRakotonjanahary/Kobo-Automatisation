@@ -6,11 +6,11 @@ import {
   FileSpreadsheet,
   Filter,
   Layers,
+  LayoutGrid,
   ListFilter,
   RefreshCw,
   Search,
   Square,
-  User,
 } from 'lucide-react';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
 
@@ -18,9 +18,48 @@ interface SubmissionsSelectionPanelProps {
   form: UseExportFormReturn;
 }
 
+// Fonction de parsing robuste pour trier par date décroissante
+const parseSubmissionDate = (dateStr?: string): number => {
+  if (!dateStr || typeof dateStr !== 'string') return 0;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return 0;
+
+  // Format français usuel : JJ/MM/AAAA HH:MM ou JJ/MM/AAAA
+  const ddmmyyyyMatch = trimmed.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+  );
+  if (ddmmyyyyMatch) {
+    const day = parseInt(ddmmyyyyMatch[1], 10);
+    const month = parseInt(ddmmyyyyMatch[2], 10) - 1;
+    const year = parseInt(ddmmyyyyMatch[3], 10);
+    const hours = ddmmyyyyMatch[4] ? parseInt(ddmmyyyyMatch[4], 10) : 0;
+    const minutes = ddmmyyyyMatch[5] ? parseInt(ddmmyyyyMatch[5], 10) : 0;
+    const seconds = ddmmyyyyMatch[6] ? parseInt(ddmmyyyyMatch[6], 10) : 0;
+    return new Date(year, month, day, hours, minutes, seconds).getTime();
+  }
+
+  // Fallback format standard ISO ou date convertible
+  const parsed = Date.parse(trimmed);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBySelectedSites, setFilterBySelectedSites] = useState(true);
+
+  // Nombre de soumissions par secteur
+  const sectorSubmissionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const site of form.availableSites) {
+      counts[site] = 0;
+    }
+    for (const sub of form.availableSubmissions) {
+      if (sub.site && counts[sub.site] !== undefined) {
+        counts[sub.site] = (counts[sub.site] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [form.availableSites, form.availableSubmissions]);
 
   // Filtrer les soumissions selon la recherche et les secteurs actuellement sélectionnés
   const filteredSubmissions = useMemo(() => {
@@ -36,7 +75,6 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
       if (!searchTerm.trim()) return true;
       const term = searchTerm.toLowerCase();
       return (
-        (sub.label && sub.label.toLowerCase().includes(term)) ||
         (sub.site && sub.site.toLowerCase().includes(term)) ||
         (sub.submission_time && sub.submission_time.toLowerCase().includes(term)) ||
         (sub.id && sub.id.toLowerCase().includes(term))
@@ -44,16 +82,30 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
     });
   }, [form.availableSubmissions, form.selectedSites, filterBySelectedSites, searchTerm]);
 
+  // 1. Tri par date décroissante (de la plus récente à la plus ancienne)
+  const sortedSubmissions = useMemo(() => {
+    return [...filteredSubmissions].sort((a, b) => {
+      const timeA = parseSubmissionDate(a.submission_time);
+      const timeB = parseSubmissionDate(b.submission_time);
+      if (timeA !== timeB) {
+        return timeB - timeA; // Plus récente en premier
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+  }, [filteredSubmissions]);
+
   // Nombre de soumissions visibles sélectionnées
   const visibleSelectedCount = useMemo(() => {
-    return filteredSubmissions.filter(s => form.selectedSubmissionIds.includes(s.id)).length;
-  }, [filteredSubmissions, form.selectedSubmissionIds]);
+    return sortedSubmissions.filter(s => form.selectedSubmissionIds.includes(s.id)).length;
+  }, [sortedSubmissions, form.selectedSubmissionIds]);
 
-  const isAllVisibleSelected = filteredSubmissions.length > 0 && visibleSelectedCount === filteredSubmissions.length;
-  const isSomeVisibleSelected = visibleSelectedCount > 0 && visibleSelectedCount < filteredSubmissions.length;
+  const isAllVisibleSelected =
+    sortedSubmissions.length > 0 && visibleSelectedCount === sortedSubmissions.length;
+  const isSomeVisibleSelected =
+    visibleSelectedCount > 0 && visibleSelectedCount < sortedSubmissions.length;
 
   const handleToggleAllVisible = () => {
-    const visibleIds = filteredSubmissions.map(s => s.id);
+    const visibleIds = sortedSubmissions.map(s => s.id);
     if (isAllVisibleSelected) {
       form.deselectSubmissions(visibleIds);
     } else {
@@ -61,45 +113,40 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
     }
   };
 
+  const toggleSite = (site: string) => {
+    form.setSelectedSites(prev =>
+      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* ── En-tête du panneau ── */}
-      <div className="px-6 py-3.5 border-b border-gray-100 bg-gray-50/50 flex flex-wrap items-center justify-between gap-3">
+      {/* ── En-tête du panneau unifié ── */}
+      <div className="px-6 py-3.5 border-b border-gray-100 bg-gray-50/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-100 rounded-lg">
             <ListFilter size={16} className="text-indigo-600" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[14px] font-bold text-gray-900">Soumissions individuelles</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[14px] font-bold text-gray-900">Soumissions &amp; Secteurs</span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                {form.selectedSubmissionIds.length} / {form.availableSubmissions.length} sélectionnée(s)
+                {form.selectedSubmissionIds.length} / {form.availableSubmissions.length} soumission(s)
               </span>
+              {form.availableSites.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  {form.selectedSites.length} / {form.availableSites.length} secteur(s)
+                </span>
+              )}
             </div>
             <p className="text-[10px] text-gray-400 font-medium tracking-tight">
-              Cochez les lignes spécifiques à inclure dans l'export
+              Filtrez par secteur et cochez les soumissions spécifiques à inclure dans l'export
             </p>
           </div>
         </div>
 
-        {/* Boutons d'action globale */}
+        {/* Boutons d'action globale pour les soumissions */}
         <div className="flex items-center gap-2">
-          {form.selectedSites.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setFilterBySelectedSites(prev => !prev)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold border transition-all ${
-                filterBySelectedSites
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                  : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
-              }`}
-              title="Afficher uniquement les soumissions des secteurs cochés"
-            >
-              <Filter size={11} />
-              {filterBySelectedSites ? 'Secteurs cochés uniquement' : 'Tous les secteurs'}
-            </button>
-          )}
-
           <button
             type="button"
             onClick={() => form.selectAllSubmissions()}
@@ -117,14 +164,101 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
         </div>
       </div>
 
-      {/* ── Barre de recherche ── */}
+      {/* ── 3. Section Filtre par Secteurs / Sites (Intégrée) ── */}
+      {form.availableSites.length > 0 && (
+        <div className="px-6 py-3 border-b border-gray-100 bg-slate-50/70 space-y-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <LayoutGrid size={13} className="text-indigo-600" />
+              <span className="text-[11px] font-bold text-gray-800 uppercase tracking-tight">
+                Secteurs / Sites ({form.selectedSites.length}/{form.availableSites.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setFilterBySelectedSites(prev => !prev)}
+                className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
+                  filterBySelectedSites
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                    : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
+                }`}
+                title="Filtrer l'affichage du tableau ci-dessous selon les secteurs cochés"
+              >
+                <Filter size={10} />
+                {filterBySelectedSites ? 'Filtrage tableau actif' : 'Tableau affiche tout'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <button
+                type="button"
+                onClick={() => form.setSelectedSites(form.availableSites)}
+                className="px-2 py-0.5 rounded font-medium bg-white hover:bg-gray-100 text-indigo-600 border border-gray-200 transition-colors"
+              >
+                Tous
+              </button>
+              <button
+                type="button"
+                onClick={() => form.setSelectedSites([])}
+                className="px-2 py-0.5 rounded font-medium bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 transition-colors"
+              >
+                Aucun
+              </button>
+            </div>
+          </div>
+
+          {/* Boutons de secteurs cliquables */}
+          <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto custom-scrollbar p-0.5">
+            {form.availableSites.map(site => {
+              const isSelected = form.selectedSites.includes(site);
+              const count = sectorSubmissionCounts[site];
+
+              return (
+                <button
+                  key={site}
+                  type="button"
+                  onClick={() => toggleSite(site)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all border ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-semibold'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/40'
+                  }`}
+                >
+                  <div
+                    className={`w-3.5 h-3.5 rounded flex items-center justify-center transition-colors ${
+                      isSelected ? 'bg-white/20 text-white' : 'border border-gray-300 bg-white'
+                    }`}
+                  >
+                    {isSelected && <Check size={10} strokeWidth={3} />}
+                  </div>
+                  <span className="truncate max-w-[200px]" title={site}>
+                    {site}
+                  </span>
+                  {count !== undefined && (
+                    <span
+                      className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                        isSelected
+                          ? 'bg-white/20 text-white'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Barre de recherche rapide ── */}
       {form.availableSubmissions.length > 0 && (
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-white flex items-center gap-3">
+        <div className="px-6 py-2.5 border-b border-gray-100 bg-white flex items-center gap-3 shrink-0">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Rechercher par nom, répondant, date, secteur ou identifiant..."
+              placeholder="Filtrer les soumissions par date, secteur ou référence Kobo..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-[11px] rounded-lg border border-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
@@ -139,7 +273,7 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
             </button>
           )}
           <span className="text-[10px] text-gray-400 shrink-0 font-medium">
-            {filteredSubmissions.length} ligne(s) affichée(s)
+            {sortedSubmissions.length} ligne(s) affichée(s)
           </span>
         </div>
       )}
@@ -149,16 +283,18 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
         {!form.selectedFormName ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-20 grayscale opacity-30">
             <Layers size={56} strokeWidth={1} className="mb-4 text-indigo-900" />
-            <p className="text-[13px] font-bold uppercase tracking-[0.2em] text-gray-900">En attente de formulaire</p>
+            <p className="text-[13px] font-bold uppercase tracking-[0.2em] text-gray-900">
+              En attente de formulaire
+            </p>
             <p className="text-[11px] mt-1 text-gray-500 max-w-[280px]">
-              Sélectionnez un formulaire Kobo pour afficher ses soumissions.
+              Sélectionnez un formulaire Kobo pour afficher ses soumissions et secteurs.
             </p>
           </div>
-        ) : (form.loadingSites || form.loadingColumns || form.loadingStructure) ? (
+        ) : form.loadingSites || form.loadingColumns || form.loadingStructure ? (
           <div className="flex flex-col items-center justify-center h-full py-20 text-center animate-pulse">
             <RefreshCw size={32} className="text-indigo-500 animate-spin mb-4" />
             <p className="text-[12px] font-bold text-indigo-600 uppercase tracking-widest leading-relaxed">
-              Chargement des soumissions Kobo...
+              Chargement des soumissions &amp; secteurs...
             </p>
           </div>
         ) : form.availableSubmissions.length === 0 ? (
@@ -173,26 +309,27 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
               Vérifiez que le formulaire Kobo contient des données soumises.
             </p>
           </div>
-        ) : filteredSubmissions.length === 0 ? (
+        ) : sortedSubmissions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full py-20 text-center">
             <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
               <Search size={20} className="text-gray-300" />
             </div>
             <p className="text-[12px] font-bold text-gray-500">Aucun résultat</p>
             <p className="text-[10px] text-gray-400 mt-1">
-              Aucune soumission ne correspond à votre filtre de recherche ou de secteur.
+              Aucune soumission ne correspond aux filtres de recherche ou de secteur actuels.
             </p>
           </div>
         ) : (
           <table className="w-full border-collapse text-left text-[11px]">
-            <thead className="bg-gray-50/80 sticky top-0 z-10 border-b border-gray-100 backdrop-blur-sm">
+            <thead className="bg-gray-50/90 sticky top-0 z-10 border-b border-gray-200/80 backdrop-blur-sm">
               <tr className="text-gray-500 text-[10px] uppercase font-bold tracking-wider">
+                {/* 1. Case à cocher globale */}
                 <th className="py-2.5 px-4 w-10">
                   <button
                     type="button"
                     onClick={handleToggleAllVisible}
                     className="flex items-center justify-center text-indigo-600 hover:text-indigo-800 transition-colors"
-                    title={isAllVisibleSelected ? "Tout décocher" : "Tout cocher"}
+                    title={isAllVisibleSelected ? 'Tout décocher le visible' : 'Tout cocher le visible'}
                   >
                     {isAllVisibleSelected ? (
                       <CheckSquare size={15} />
@@ -205,14 +342,19 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                     )}
                   </button>
                 </th>
+
+                {/* 2. Date & Heure */}
                 <th className="py-2.5 px-4">Date &amp; Heure</th>
+
+                {/* 3. Secteur / Site */}
                 <th className="py-2.5 px-4">Secteur / Site</th>
-                <th className="py-2.5 px-4">Répondant / Identifiant</th>
+
+                {/* 4. Réf. Kobo (colonne Répondant retirée) */}
                 <th className="py-2.5 px-4 text-right">Réf. Kobo</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredSubmissions.map((sub, idx) => {
+            <tbody className="divide-y divide-gray-100">
+              {sortedSubmissions.map((sub, idx) => {
                 const isSelected = form.selectedSubmissionIds.includes(sub.id);
                 return (
                   <tr
@@ -237,11 +379,11 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                       </div>
                     </td>
 
-                    {/* Date & Heure */}
+                    {/* Date & Heure (Triée par défaut de la plus récente à la plus ancienne) */}
                     <td className="py-2.5 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-1.5 text-gray-700">
-                        <Calendar size={12} className="text-indigo-400 shrink-0" />
-                        <span className="font-mono text-[10px]">
+                        <Calendar size={12} className="text-indigo-500 shrink-0" />
+                        <span className="font-mono text-[11px] font-medium">
                           {sub.submission_time || 'Non renseignée'}
                         </span>
                       </div>
@@ -250,7 +392,7 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                     {/* Secteur / Site */}
                     <td className="py-2.5 px-4 whitespace-nowrap">
                       {sub.site ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/70">
                           {sub.site}
                         </span>
                       ) : (
@@ -258,23 +400,13 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                       )}
                     </td>
 
-                    {/* Répondant / Identifiant */}
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-1.5 max-w-[320px] truncate">
-                        <User size={11} className="text-gray-400 shrink-0" />
-                        <span className="truncate font-semibold text-gray-800" title={sub.label}>
-                          {sub.label || 'Soumission standard'}
-                        </span>
-                      </div>
-                    </td>
-
                     {/* Réf. Kobo */}
                     <td className="py-2.5 px-4 text-right whitespace-nowrap">
                       <span
-                        className="font-mono text-[9px] text-gray-400 hover:text-indigo-600 transition-colors"
+                        className="font-mono text-[10px] text-gray-400 hover:text-indigo-600 transition-colors"
                         title={sub.id}
                       >
-                        {sub.id.length > 12 ? `${sub.id.slice(0, 8)}...` : sub.id}
+                        {sub.id.length > 16 ? `${sub.id.slice(0, 12)}...` : sub.id}
                       </span>
                     </td>
                   </tr>
@@ -287,14 +419,14 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
 
       {/* ── Pied de page / Info ── */}
       {form.availableSubmissions.length > 0 && (
-        <div className="px-6 py-2 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between text-[9px] text-gray-400">
+        <div className="px-6 py-2 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between text-[10px] text-gray-500 shrink-0">
           <span>
             {form.selectedSubmissionIds.length === 0
-              ? '⚠️ Aucune soumission cochée : l’export exportera tout par défaut.'
+              ? '⚠️ Aucune soumission cochée : l’export prendra toutes les soumissions par défaut.'
               : `${form.selectedSubmissionIds.length} soumission(s) incluse(s) dans le fichier exporté.`}
           </span>
-          <span className="font-mono">
-            Total formulaire : {form.availableSubmissions.length}
+          <span className="font-mono text-gray-400">
+            Total : {form.availableSubmissions.length}
           </span>
         </div>
       )}
