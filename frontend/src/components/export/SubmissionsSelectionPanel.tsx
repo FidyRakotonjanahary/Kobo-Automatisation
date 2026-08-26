@@ -4,7 +4,6 @@ import {
   Check,
   CheckSquare,
   FileSpreadsheet,
-  Filter,
   Layers,
   LayoutGrid,
   ListFilter,
@@ -45,7 +44,9 @@ const parseSubmissionDate = (dateStr?: string): number => {
 
 export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelProps) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterBySelectedSites, setFilterBySelectedSites] = useState(true);
+
+  // Indique si le pivot géographique est actif (une colonne de pivot est sélectionnée)
+  const hasPivot = form.pivot !== '';
 
   // Nombre de soumissions par secteur
   const sectorSubmissionCounts = useMemo(() => {
@@ -64,11 +65,12 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
   // Filtrer les soumissions selon la recherche et les secteurs actuellement sélectionnés
   const filteredSubmissions = useMemo(() => {
     return form.availableSubmissions.filter(sub => {
-      // 1. Filtrage par secteur/site sélectionné
-      if (filterBySelectedSites && form.selectedSites.length > 0 && sub.site) {
-        if (!form.selectedSites.includes(sub.site)) {
-          return false;
-        }
+      // 1. Filtrage par secteur/site — uniquement si un pivot est actif
+      if (hasPivot && form.availableSites.length > 0) {
+        // Si aucun secteur n'est sélectionné, on n'affiche rien
+        if (form.selectedSites.length === 0) return false;
+        // Si la soumission a un site, on filtre par secteurs sélectionnés
+        if (sub.site && !form.selectedSites.includes(sub.site)) return false;
       }
 
       // 2. Filtrage textuel (recherche)
@@ -80,7 +82,7 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
         (sub.id && sub.id.toLowerCase().includes(term))
       );
     });
-  }, [form.availableSubmissions, form.selectedSites, filterBySelectedSites, searchTerm]);
+  }, [form.availableSubmissions, form.selectedSites, form.availableSites, hasPivot, searchTerm]);
 
   // 1. Tri par date décroissante (de la plus récente à la plus ancienne)
   const sortedSubmissions = useMemo(() => {
@@ -133,7 +135,7 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 {form.selectedSubmissionIds.length} / {form.availableSubmissions.length} soumission(s)
               </span>
-              {form.availableSites.length > 0 && (
+              {hasPivot && form.availableSites.length > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                   {form.selectedSites.length} / {form.availableSites.length} secteur(s)
                 </span>
@@ -164,8 +166,8 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
         </div>
       </div>
 
-      {/* ── 3. Section Filtre par Secteurs / Sites (Intégrée) ── */}
-      {form.availableSites.length > 0 && (
+      {/* ── 3. Section Filtre par Secteurs / Sites (uniquement si pivot actif) ── */}
+      {hasPivot && form.availableSites.length > 0 && (
         <div className="px-6 py-3 border-b border-gray-100 bg-slate-50/70 space-y-2.5 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -173,19 +175,6 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
               <span className="text-[11px] font-bold text-gray-800 uppercase tracking-tight">
                 Secteurs / Sites ({form.selectedSites.length}/{form.availableSites.length})
               </span>
-              <button
-                type="button"
-                onClick={() => setFilterBySelectedSites(prev => !prev)}
-                className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
-                  filterBySelectedSites
-                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                    : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
-                }`}
-                title="Filtrer l'affichage du tableau ci-dessous selon les secteurs cochés"
-              >
-                <Filter size={10} />
-                {filterBySelectedSites ? 'Filtrage tableau actif' : 'Tableau affiche tout'}
-              </button>
             </div>
 
             <div className="flex items-center gap-1.5 text-[10px]">
@@ -250,6 +239,7 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
           </div>
         </div>
       )}
+
 
       {/* ── Barre de recherche rapide ── */}
       {form.availableSubmissions.length > 0 && (
@@ -346,8 +336,8 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                 {/* 2. Date & Heure */}
                 <th className="py-2.5 px-4">Date &amp; Heure</th>
 
-                {/* 3. Secteur / Site */}
-                <th className="py-2.5 px-4">Secteur / Site</th>
+                {/* 3. Secteur / Site — visible uniquement quand un pivot est sélectionné */}
+                {hasPivot && <th className="py-2.5 px-4">Secteur / Site</th>}
 
                 {/* 4. Réf. Kobo (colonne Répondant retirée) */}
                 <th className="py-2.5 px-4 text-right">Réf. Kobo</th>
@@ -389,16 +379,18 @@ export const SubmissionsSelectionPanel = ({ form }: SubmissionsSelectionPanelPro
                       </div>
                     </td>
 
-                    {/* Secteur / Site */}
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      {sub.site ? (
-                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/70">
-                          {sub.site}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-300 italic">-</span>
-                      )}
-                    </td>
+                    {/* Secteur / Site — visible uniquement quand un pivot est sélectionné */}
+                    {hasPivot && (
+                      <td className="py-2.5 px-4 whitespace-nowrap">
+                        {sub.site ? (
+                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/70">
+                            {sub.site}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-300 italic">-</span>
+                        )}
+                      </td>
+                    )}
 
                     {/* Réf. Kobo */}
                     <td className="py-2.5 px-4 text-right whitespace-nowrap">
