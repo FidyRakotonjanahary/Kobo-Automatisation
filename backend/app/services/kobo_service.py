@@ -318,12 +318,9 @@ class KoboService:
         return merged
 
     @staticmethod
-    @retry_with_backoff(
-        retries=3, exceptions=(httpx.NetworkError, httpx.TimeoutException)
-    )
     async def download_media_file(
         credential: Credential, url: str, target_path: str
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         password = security_manager.decrypt(credential.encrypted_password)
         try:
             async with httpx.AsyncClient(
@@ -334,8 +331,18 @@ class KoboService:
                         with open(target_path, "wb") as f:
                             async for chunk in response.aiter_bytes():
                                 f.write(chunk)
-                        return True
-            return False
+                        return True, "Téléchargé avec succès"
+                    elif response.status_code == 404:
+                        return False, "Photo introuvable sur le serveur Kobo (HTTP 404 - lien cassé ou supprimé)"
+                    elif response.status_code in (401, 403):
+                        return False, "Accès refusé par le serveur Kobo (HTTP 401/403 - identifiants non autorisés)"
+                    else:
+                        return False, f"Erreur serveur Kobo HTTP {response.status_code}"
+        except httpx.TimeoutException:
+            return False, "Délai d'attente dépassé lors du téléchargement Kobo (timeout)"
+        except httpx.ConnectError:
+            return False, "Impossible d'établir la connexion avec le serveur Kobo (erreur réseau)"
         except Exception as e:
             logger.error(f"Erreur download media: {e}")
-            return False
+            return False, f"Erreur de téléchargement : {str(e)}"
+

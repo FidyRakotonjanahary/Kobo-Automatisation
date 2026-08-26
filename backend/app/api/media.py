@@ -16,12 +16,19 @@ from app.services.media_engine import MediaEngine
 logger = logging.getLogger("api_media")
 router = APIRouter()
 
-# Stockage temporaire de la progression
+# Stockage temporaire de la progression (polling)
 migration_status = {
     "logs": [],
     "is_running": False,
     "stop_requested": False,
-    "progress": {"current": 0, "total": 0, "percent": 0},
+    "progress": {
+        "current": 0,
+        "total": 0,
+        "percent": 0,
+        "current_action": "",
+        "success": 0,
+        "failed": 0,
+    },
     "last_stats": None,
 }
 
@@ -56,23 +63,33 @@ async def start_migration(req: MigrationRequest, db: AsyncSession = Depends(get_
     global migration_status
     migration_status["logs"] = []
     migration_status["is_running"] = True
-    migration_status["progress"] = {"current": 0, "total": 0, "percent": 0}
+    migration_status["stop_requested"] = False
+    migration_status["progress"] = {
+        "current": 0,
+        "total": 0,
+        "percent": 0,
+        "current_action": "",
+        "success": 0,
+        "failed": 0,
+    }
 
     try:
         google = GoogleService()
         engine = MediaEngine(google, kobo_accs)
-        migration_status["stop_requested"] = False
 
-        def on_prog(msg, current=None, total=None):
+        def on_prog(msg, current=None, total=None, current_action="", success=0, failed=0):
             migration_status["logs"].append(msg)
-            if len(migration_status["logs"]) > 50:
+            if len(migration_status["logs"]) > 200:
                 migration_status["logs"].pop(0)
             if current is not None and total is not None:
                 pct = int((current / total) * 100) if total > 0 else 0
                 migration_status["progress"] = {
                     "current": current,
                     "total": total,
-                    "percent": min(pct, 100)
+                    "percent": min(pct, 100),
+                    "current_action": current_action,
+                    "success": success,
+                    "failed": failed,
                 }
 
         def check_stop():
@@ -87,6 +104,34 @@ async def start_migration(req: MigrationRequest, db: AsyncSession = Depends(get_
             check_stop=check_stop,
             update_links=req.update_links,
         )
+
+        migration_status["last_stats"] = stats
+
+        # ── Persister l'historique en base ──
+        try:
+            from app.repositories.media_repository import MediaRepository
+            media_repo = MediaRepository(db)
+            total_items = stats.get("success", 0) + stats.get("failed", 0)
+            status_str = "partial" if stats.get("failed", 0) > 0 else "success"
+            if migration_status["stop_requested"]:
+                status_str = "stopped"
+            dup = stats.get("skipped_duplicates", 0)
+            await media_repo.save_migration_history(
+                source_type="google_sheet",
+                source_name=req.spreadsheet_id,
+                sheet_name=req.sheet_name or None,
+                drive_folder_id=req.drive_folder_id,
+                total_items=total_items,
+                success_count=stats.get("success", 0),
+                failed_count=stats.get("failed", 0),
+                update_links=req.update_links,
+                status=status_str,
+                failed_items=stats.get("failed_items", []),
+                message=f"{dup} dédupliqué(s)" if dup else None,
+            )
+        except Exception as hist_err:
+            logger.warning(f"Impossible de sauvegarder l'historique: {hist_err}")
+
         return {"status": "finished", "results": stats}
 
     except AppException as e:
@@ -127,27 +172,38 @@ async def start_migration_excel(
         mapping = {}
 
     excel_bytes = await file.read()
+    original_filename = file.filename
 
     global migration_status
     migration_status["logs"] = []
     migration_status["is_running"] = True
     migration_status["stop_requested"] = False
-    migration_status["progress"] = {"current": 0, "total": 0, "percent": 0}
+    migration_status["progress"] = {
+        "current": 0,
+        "total": 0,
+        "percent": 0,
+        "current_action": "",
+        "success": 0,
+        "failed": 0,
+    }
 
     try:
         google = GoogleService()
         engine = MediaEngine(google, kobo_accs)
 
-        def on_prog(msg, current=None, total=None):
+        def on_prog(msg, current=None, total=None, current_action="", success=0, failed=0):
             migration_status["logs"].append(msg)
-            if len(migration_status["logs"]) > 50:
+            if len(migration_status["logs"]) > 200:
                 migration_status["logs"].pop(0)
             if current is not None and total is not None:
                 pct = int((current / total) * 100) if total > 0 else 0
                 migration_status["progress"] = {
                     "current": current,
                     "total": total,
-                    "percent": min(pct, 100)
+                    "percent": min(pct, 100),
+                    "current_action": current_action,
+                    "success": success,
+                    "failed": failed,
                 }
 
         def check_stop():
@@ -165,11 +221,36 @@ async def start_migration_excel(
 
         migration_status["last_stats"] = stats
 
+        # ── Persister l'historique en base ──
+        try:
+            from app.repositories.media_repository import MediaRepository
+            media_repo = MediaRepository(db)
+            total_items = stats.get("success", 0) + stats.get("failed", 0)
+            status_str = "partial" if stats.get("failed", 0) > 0 else "success"
+            if migration_status["stop_requested"]:
+                status_str = "stopped"
+            dup = stats.get("skipped_duplicates", 0)
+            await media_repo.save_migration_history(
+                source_type="excel_local",
+                source_name=original_filename,
+                sheet_name=sheet_name or None,
+                drive_folder_id=drive_folder_id,
+                total_items=total_items,
+                success_count=stats.get("success", 0),
+                failed_count=stats.get("failed", 0),
+                update_links=update_links,
+                status=status_str,
+                failed_items=stats.get("failed_items", []),
+                message=f"{dup} dédupliqué(s)" if dup else None,
+            )
+        except Exception as hist_err:
+            logger.warning(f"Impossible de sauvegarder l'historique: {hist_err}")
+
         # Si update_links=False : on retourne juste les stats (pas de téléchargement)
         if not update_links or result_bytes is None:
             return {"status": "finished", "results": stats}
 
-        original_name = file.filename.rsplit(".", 1)[0]
+        original_name = original_filename.rsplit(".", 1)[0]
         output_filename = f"{original_name}_migrated.xlsx"
 
         return StreamingResponse(
@@ -185,3 +266,47 @@ async def start_migration_excel(
         raise e
     finally:
         migration_status["is_running"] = False
+
+
+@router.get("/history")
+async def get_migration_history(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """Récupère l'historique persistant des migrations depuis la base de données."""
+    from app.repositories.media_repository import MediaRepository
+
+    media_repo = MediaRepository(db)
+    items = await media_repo.get_all_history(limit=limit)
+
+    result = []
+    for item in items:
+        try:
+            failed_items = json.loads(item.failed_items_json) if item.failed_items_json else []
+        except Exception:
+            failed_items = []
+
+        created_at_str = item.created_at.isoformat() if item.created_at else ""
+        result.append({
+            "id": item.id,
+            "source_type": item.source_type,
+            "source_name": item.source_name,
+            "sheet_name": item.sheet_name,
+            "drive_folder_id": item.drive_folder_id,
+            "total_items": item.total_items,
+            "success_count": item.success_count,
+            "failed_count": item.failed_count,
+            "update_links": item.update_links,
+            "status": item.status,
+            "failed_items": failed_items,
+            "message": item.message,
+            "created_at": created_at_str,
+            "timestamp": created_at_str,
+        })
+    return result
+
+
+@router.delete("/history")
+async def clear_migration_history(db: AsyncSession = Depends(get_db)):
+    """Efface tout l'historique des migrations."""
+    from app.repositories.media_repository import MediaRepository
+    media_repo = MediaRepository(db)
+    count = await media_repo.clear_all_history()
+    return {"deleted": count}

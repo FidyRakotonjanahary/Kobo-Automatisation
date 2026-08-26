@@ -10,6 +10,7 @@ from app.database.base import Base
 from app.models.credential import Credential  # noqa: F401
 from app.models.export_history import ExportHistory  # noqa: F401
 from app.models.google_token import GoogleToken  # noqa: F401
+from app.models.media_history import MediaHistory  # noqa: F401
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
