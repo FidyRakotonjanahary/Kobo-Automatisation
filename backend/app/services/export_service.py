@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -10,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppException
 from app.models.credential import Credential
 from app.repositories.credential_repository import CredentialRepository
+from app.repositories.export_repository import ExportRepository
 from app.schemas.export import (
     AccountFormPair,
     ExportFileResult,
+    ExportHistoryItem,
     ExportRequest,
     ExportResult,
     OpenFileResult,
@@ -54,10 +57,13 @@ async def resolve_credential_pairs(
 class ExportService:
     def __init__(self, db: AsyncSession):
         self.credential_repository = CredentialRepository(db)
+        self.export_repository = ExportRepository(db)
 
     async def run_export(self, req: ExportRequest) -> ExportResult:
         task_id = req.task_id or "legacy"
         task_monitor.start_task(task_id)
+        
+        acc_id = req.account_forms[0].account_id if req.account_forms else None
         
         cred_uid_pairs = await resolve_credential_pairs(
             self.credential_repository,
@@ -102,13 +108,47 @@ class ExportService:
 
             # Vérification après filtrage (avant upload)
             if task_monitor.is_cancelled(task_id):
-                return ExportResult(status="success", message="Exportation annul\u00e9e par l'utilisateur.", files=[], drive_success=0)
+                cancel_msg = "Exportation annulée par l'utilisateur."
+                try:
+                    await self.export_repository.save_export_history(
+                        account_id=acc_id,
+                        form_name=req.form_name,
+                        pivot_field=req.pivot_column or "",
+                        output_path="",
+                        export_format=req.export_format,
+                        status="cancelled",
+                        files=[],
+                        drive_success=0,
+                        drive_errors=[],
+                        message=cancel_msg,
+                    )
+                except Exception as db_err:
+                    logger.warning(f"Erreur enregistrement annulation en base : {db_err}")
+                return ExportResult(status="success", message=cancel_msg, files=[], drive_success=0)
 
             files = self._export_files(raw_files)
             drive_count, drive_errors = await self._upload_to_drive(files, req, task_id)
             total_rows = sum(file.rows for file in files)
 
-            message = f"Export termin\u00e9 : {len(files)} fichiers ({total_rows} lignes)."
+            message = f"Export terminé : {len(files)} fichiers ({total_rows} lignes)."
+
+            # Enregistrement persistant dans la base de données Neon
+            try:
+                await self.export_repository.save_export_history(
+                    account_id=acc_id,
+                    form_name=req.form_name,
+                    pivot_field=req.pivot_column or "",
+                    output_path=files[0].folder_path if files else "",
+                    export_format=req.export_format,
+                    status="success",
+                    files=[file.model_dump() for file in files],
+                    drive_success=drive_count,
+                    drive_errors=drive_errors,
+                    message=message,
+                )
+            except Exception as db_err:
+                logger.warning(f"Erreur enregistrement historique en base : {db_err}")
+
             return ExportResult(
                 status="success",
                 message=message,
@@ -118,6 +158,21 @@ class ExportService:
             )
         except Exception as e:
             logger.error(f"Frayeur export: {e}")
+            try:
+                await self.export_repository.save_export_history(
+                    account_id=acc_id,
+                    form_name=req.form_name,
+                    pivot_field=req.pivot_column or "",
+                    output_path="",
+                    export_format=req.export_format,
+                    status="error",
+                    files=[],
+                    drive_success=0,
+                    drive_errors=[],
+                    message=str(e),
+                )
+            except Exception as db_err:
+                logger.warning(f"Erreur enregistrement échec en base : {db_err}")
             raise AppException(str(e), 500)
         finally:
             task_monitor.stop_task(task_id)
@@ -381,3 +436,71 @@ class ExportService:
                 )
             )
         return results
+
+    async def get_export_history(self, limit: int = 50) -> List[ExportHistoryItem]:
+        rows = await self.export_repository.get_all_history(limit=limit)
+        items: List[ExportHistoryItem] = []
+        for row in rows:
+            raw_files = []
+            if row.files_json:
+                try:
+                    raw_files = json.loads(row.files_json)
+                except Exception:
+                    raw_files = []
+            elif row.output_path:
+                raw_files = [{
+                    "site": row.pivot_field or "Export",
+                    "path": row.output_path,
+                    "folder_path": os.path.dirname(row.output_path),
+                    "rows": 0,
+                    "drive_link": None,
+                }]
+
+            parsed_files: List[ExportFileResult] = []
+            for f in raw_files:
+                p = f.get("path", "")
+                server_exists = os.path.isfile(p) if p else False
+                parsed_files.append(
+                    ExportFileResult(
+                        site=f.get("site", ""),
+                        path=p,
+                        folder_path=f.get("folder_path", ""),
+                        rows=f.get("rows", 0),
+                        drive_link=f.get("drive_link"),
+                        server_file_exists=server_exists,
+                    )
+                )
+
+            raw_errors = []
+            if row.drive_errors_json:
+                try:
+                    raw_errors = json.loads(row.drive_errors_json)
+                except Exception:
+                    raw_errors = []
+
+            created_time = row.created_at.strftime("%H:%M:%S") if row.created_at else ""
+            created_date = row.created_at.strftime("%d/%m/%Y") if row.created_at else ""
+            formatted_timestamp = (
+                f"{created_date} à {created_time}" if created_date else created_time
+            )
+
+            items.append(
+                ExportHistoryItem(
+                    id=row.id,
+                    timestamp=formatted_timestamp or "Récent",
+                    form_name=row.form_name or "Export Kobo",
+                    format=row.format or "xlsx",
+                    status=row.status or "success",
+                    message=row.message or "",
+                    files=parsed_files,
+                    drive_success=row.drive_success or 0,
+                    drive_errors=raw_errors,
+                    created_at=row.created_at.isoformat() if row.created_at else "",
+                )
+            )
+        return items
+
+    async def clear_export_history(self) -> dict:
+        count = await self.export_repository.clear_all_history()
+        return {"status": "success", "deleted_count": count}
+

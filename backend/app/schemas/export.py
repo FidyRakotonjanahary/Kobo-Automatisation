@@ -46,6 +46,7 @@ class ExportFileResult(BaseModel):
     folder_path: str
     rows: int
     drive_link: Optional[str] = None
+    server_file_exists: Optional[bool] = None
 
 
 class ExportResult(BaseModel):
@@ -54,6 +55,19 @@ class ExportResult(BaseModel):
     files: List[ExportFileResult]
     drive_success: int
     drive_errors: List[str] = []
+
+
+class ExportHistoryItem(BaseModel):
+    id: int
+    timestamp: str
+    form_name: str
+    format: str = "xlsx"
+    status: str = "success"
+    message: Optional[str] = ""
+    files: List[ExportFileResult] = []
+    drive_success: int = 0
+    drive_errors: List[str] = []
+    created_at: str
 
 
 class PreviewResult(BaseModel):

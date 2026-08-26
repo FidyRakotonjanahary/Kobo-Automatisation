@@ -58,6 +58,7 @@ export interface ExportFileResult {
   folder_path: string;
   rows: number;
   drive_link?: string;
+  server_file_exists?: boolean;
 }
 
 export interface ExportResult {
@@ -70,7 +71,7 @@ export interface ExportResult {
 }
 
 export interface SessionExportItem {
-  id: string;
+  id: string | number;
   timestamp: string;
   formName: string;
   format: ExportFormat;
@@ -81,6 +82,7 @@ export interface SessionExportItem {
   driveSuccess?: number;
   driveErrors?: string[];
   errorMessage?: string;
+  createdAt?: string;
 }
 
 export interface PreviewResult {

@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from typing import List
+
 from app.database.session import get_db
 from app.schemas.export import (
+    ExportHistoryItem,
     ExportRequest,
     ExportResult,
     PreviewSitesResult,
@@ -21,6 +24,24 @@ router = APIRouter()
 async def run_export(req: ExportRequest, db: AsyncSession = Depends(get_db)):
     service = ExportService(db)
     return await service.run_export(req)
+
+
+@router.get("/history", response_model=List[ExportHistoryItem])
+async def get_export_history(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """
+    Récupère l'historique persistant des exports enregistrés dans la base de données.
+    """
+    service = ExportService(db)
+    return await service.get_export_history(limit=limit)
+
+
+@router.delete("/history")
+async def clear_export_history(db: AsyncSession = Depends(get_db)):
+    """
+    Efface l'historique des exports de la base de données.
+    """
+    service = ExportService(db)
+    return await service.clear_export_history()
 
 
 @router.post("/cancel")
@@ -57,7 +78,10 @@ async def download_export_file(path: str):
         raise HTTPException(status_code=403, detail="Accès interdit.")
 
     if not os.path.isfile(abs_path):
-        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+        raise HTTPException(
+            status_code=404,
+            detail="Le fichier n'est plus disponible sur le serveur local (le stockage temporaire a été réinitialisé). Utilisez le lien Google Drive si activé.",
+        )
 
     filename = os.path.basename(abs_path)
     return FileResponse(
@@ -65,3 +89,4 @@ async def download_export_file(path: str):
         filename=filename,
         media_type="application/octet-stream",
     )
+

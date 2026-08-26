@@ -1,20 +1,26 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/client';
+import type { SessionExportItem } from '../types/export';
 
-export interface ExportHistoryItem {
-  id: number;
-  account_id: number | null;
-  form_name: string;
-  pivot_field: string;
-  output_path: string;
-  created_at: string;
-}
-
-export const useExportHistory = (accountId?: number) => {
-  const query = useQuery<ExportHistoryItem[]>({
-    queryKey: ['export-history', accountId],
-    enabled: false,
-    queryFn: () => api.get<ExportHistoryItem[]>(`/exports/history/${accountId}`).then(res => res.data),
+export const useExportHistory = (limit: number = 50) => {
+  const query = useQuery<SessionExportItem[]>({
+    queryKey: ['export-history', limit],
+    queryFn: () =>
+      api.get<any[]>('/exports/history', { params: { limit } }).then(res =>
+        res.data.map(item => ({
+          id: item.id,
+          timestamp: item.timestamp,
+          formName: item.form_name,
+          format: item.format,
+          status: item.status,
+          message: item.message || '',
+          files: item.files || [],
+          driveSuccess: item.drive_success,
+          driveErrors: item.drive_errors,
+          errorMessage: item.status === 'error' ? item.message : undefined,
+          createdAt: item.created_at,
+        }))
+      ),
   });
 
   return {

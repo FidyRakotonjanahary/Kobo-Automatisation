@@ -13,6 +13,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { getApiBaseUrl } from '../../api/client';
 import type { UseExportFormReturn } from '../../hooks/useExportForm';
 import type { SessionExportItem } from '../../types/export';
@@ -24,19 +25,39 @@ interface ExportConsoleProps {
 
 /**
  * Déclenche le téléchargement direct d'un fichier exporté depuis le serveur.
- * Crée un lien <a> temporaire pointant vers l'URL de l'endpoint /exports/download.
+ * Vérifie si le fichier est présent sur le serveur (cas des disques éphémères Render après redémarrage).
  */
-function downloadFile(filePath: string, fileName: string) {
+async function downloadFile(filePath: string, fileName: string) {
   const encoded = encodeURIComponent(filePath);
   const baseURL = getApiBaseUrl();
   const url = `${baseURL}/exports/download?path=${encoded}`;
 
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      if (response.status === 404) {
+        toast.error(
+          "Ce fichier n'est plus présent sur le serveur local (stockage réinitialisé après redéploiement). Utilisez le lien Google Drive si activé.",
+          { duration: 6000 }
+        );
+        return;
+      }
+      throw new Error(`Erreur ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(downloadUrl);
+  } catch (err) {
+    console.error("Erreur téléchargement :", err);
+    toast.error("Impossible de télécharger le fichier local.");
+  }
 }
 
 export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
@@ -62,6 +83,9 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
             <span className="text-[13px] font-bold text-gray-900">
               Résultats des exports
             </span>
+            {form.loadingHistory && (
+              <RefreshCw size={11} className="text-indigo-500 animate-spin" />
+            )}
             {hasHistory && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 {history.length}
@@ -70,13 +94,13 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
           </div>
         </div>
 
-        {/* Action : Effacer l'historique de la session */}
+        {/* Action : Effacer l'historique de la session & base de données */}
         {hasHistory && !isPending && (
           <button
             type="button"
             onClick={form.clearExportHistory}
             className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
-            title="Effacer l'historique des exports de cette session"
+            title="Effacer tout l'historique des exports de la base de données"
           >
             <Trash2 size={12} />
             <span>Effacer</span>
@@ -119,7 +143,7 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
           </div>
         )}
 
-        {/* ── 2. État vide accueillant (aucun export dans la session) ── */}
+        {/* ── 2. État vide accueillant (aucun export en base ni dans la session) ── */}
         {!isPending && !hasHistory && (
           <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
             <div className="w-16 h-16 bg-indigo-50/90 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 ring-1 ring-indigo-100 shadow-xs">
@@ -136,7 +160,7 @@ export const ExportConsole = ({ consoleRef, form }: ExportConsoleProps) => {
                 « Lancer l'Export »
               </strong>
               . Les fichiers générés, liens de téléchargement et accès Google
-              Drive apparaîtront ici.
+              Drive apparaîtront ici et seront conservés dans votre historique.
             </p>
 
             {/* Aperçu rapide de la configuration prête */}
@@ -176,7 +200,7 @@ interface ExportHistoryCardProps {
 }
 
 /**
- * Carte individuelle représentant un export réalisé pendant la session.
+ * Carte individuelle représentant un export enregistré en base de données.
  */
 const ExportHistoryCard = ({ item }: ExportHistoryCardProps) => {
   const isSuccess = item.status === 'success';
@@ -243,13 +267,22 @@ const ExportHistoryCard = ({ item }: ExportHistoryCardProps) => {
         <div className="space-y-2">
           {item.files.map((file, fIdx) => {
             const fileName = file.path.split(/[/\\]/).pop() ?? 'export';
+            const isLocalAvailable = file.server_file_exists !== false;
+            const hasDrive = Boolean(file.drive_link);
+
             return (
               <div
                 key={fIdx}
                 className="p-2.5 bg-slate-50/80 hover:bg-slate-50 border border-gray-200/80 rounded-lg flex items-center justify-between gap-2.5 transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
+                    isLocalAvailable
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      : hasDrive
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                      : 'bg-gray-100 text-gray-400 border-gray-200'
+                  }`}>
                     <FileSpreadsheet size={14} />
                   </div>
 
@@ -274,25 +307,38 @@ const ExportHistoryCard = ({ item }: ExportHistoryCardProps) => {
 
                 {/* Boutons d'action par fichier */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Téléchargement direct */}
-                  <button
-                    type="button"
-                    onClick={() => downloadFile(file.path, fileName)}
-                    title="Télécharger directement ce fichier"
-                    className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[10px] font-semibold transition-colors shadow-xs"
-                  >
-                    <Download size={11} />
-                    <span>Télécharger</span>
-                  </button>
+                  {/* 1. Téléchargement direct (si disponible sur le serveur) */}
+                  {isLocalAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => void downloadFile(file.path, fileName)}
+                      title="Télécharger directement ce fichier depuis le serveur"
+                      className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[10px] font-semibold transition-colors shadow-xs"
+                    >
+                      <Download size={11} />
+                      <span>Télécharger</span>
+                    </button>
+                  ) : (
+                    <span
+                      title="Ce fichier n'est plus présent sur le serveur (le disque Render a été réinitialisé suite à un redéploiement)."
+                      className="px-2 py-1 bg-gray-100 text-gray-400 border border-gray-200 rounded-md text-[9px] font-medium cursor-help flex items-center gap-1"
+                    >
+                      <span>Expiré (serveur)</span>
+                    </span>
+                  )}
 
-                  {/* Lien Drive si disponible */}
-                  {file.drive_link && (
+                  {/* 2. Lien Drive si disponible */}
+                  {hasDrive && (
                     <a
                       href={file.drive_link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      title="Ouvrir dans Google Drive"
-                      className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold transition-colors"
+                      title="Ouvrir le fichier permanent dans Google Drive"
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
+                        !isLocalAvailable
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                          : 'bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      }`}
                     >
                       <ExternalLink size={11} />
                       <span>Drive</span>

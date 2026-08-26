@@ -17,9 +17,40 @@ type ApiErrorBody = { message?: string };
 export const useExportActions = (selection: ExportSelectionState) => {
   const [result, setResult] = useState<ExportResult | null>(null);
   const [exportHistory, setExportHistory] = useState<SessionExportItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [driveFolderId, setDriveFolderId] = useState('');
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+
+  // 1. Récupération de l'historique persistant depuis la base de données Neon
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await api.get<any[]>('/exports/history');
+      const mapped: SessionExportItem[] = res.data.map(item => ({
+        id: item.id,
+        timestamp: item.timestamp,
+        formName: item.form_name,
+        format: item.format,
+        status: item.status,
+        message: item.message || '',
+        files: item.files || [],
+        driveSuccess: item.drive_success,
+        driveErrors: item.drive_errors,
+        errorMessage: item.status === 'error' ? item.message : undefined,
+        createdAt: item.created_at,
+      }));
+      setExportHistory(mapped);
+    } catch (err) {
+      console.warn('Impossible de charger l’historique des exports depuis la base :', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchHistory();
+  }, []);
 
   const exportMutation = useMutation<AxiosResponse<ExportResult>, AxiosError<ApiErrorBody>, ExportRequest>({
     mutationFn: (data) => api.post<ExportResult>('/exports/run', data),
@@ -33,50 +64,16 @@ export const useExportActions = (selection: ExportSelectionState) => {
       }
       setCurrentTaskId(null);
 
-      const timeStr = new Date().toLocaleTimeString('fr-FR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-
-      const newEntry: SessionExportItem = {
-        id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        timestamp: timeStr,
-        formName: variables.form_name,
-        format: variables.export_format,
-        status: isCancelled ? 'cancelled' : 'success',
-        message: res.data.message,
-        files: res.data.files || [],
-        directory: res.data.directory,
-        driveSuccess: res.data.drive_success,
-        driveErrors: res.data.drive_errors,
-      };
-
-      setExportHistory(prev => [newEntry, ...prev]);
+      // Recharger l'historique depuis la base Neon pour garantir la synchronisation parfaite
+      void fetchHistory();
     },
     onError: (err, variables) => {
       const errMsg = err.response?.data?.message || "Erreur pendant l'export.";
       toast.error(errMsg);
       setCurrentTaskId(null);
 
-      const timeStr = new Date().toLocaleTimeString('fr-FR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-
-      const newEntry: SessionExportItem = {
-        id: `exp_err_${Date.now()}`,
-        timestamp: timeStr,
-        formName: variables.form_name,
-        format: variables.export_format,
-        status: 'error',
-        message: errMsg,
-        files: [],
-        errorMessage: errMsg,
-      };
-
-      setExportHistory(prev => [newEntry, ...prev]);
+      // Recharger l'historique depuis la base Neon (l'erreur y a été enregistrée)
+      void fetchHistory();
     },
   });
 
@@ -130,20 +127,29 @@ export const useExportActions = (selection: ExportSelectionState) => {
     }
   };
 
-  const clearExportHistory = () => {
-    setExportHistory([]);
-    setResult(null);
+  const clearExportHistory = async () => {
+    try {
+      await api.delete('/exports/history');
+      setExportHistory([]);
+      setResult(null);
+      toast.success("Historique des exports effacé.");
+    } catch {
+      setExportHistory([]);
+      setResult(null);
+    }
   };
 
   return {
     result,
     exportHistory,
+    loadingHistory,
     googleConnected,
     driveFolderId,
     exportMutation,
     handleRun,
     handleCancel,
     clearExportHistory,
+    refetchHistory: fetchHistory,
     setDriveFolderId,
   };
 };
