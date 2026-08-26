@@ -68,16 +68,43 @@ class KoboService:
                 response = await client.get("/api/v2/assets/?format=json")
                 response.raise_for_status()
                 data = response.json()
-                return [
-                    {
-                        "uid": item["uid"],
-                        "name": item["name"],
-                        "asset_type": item["asset_type"],
-                        "owner_username": item["owner__username"],
-                    }
-                    for item in data.get("results", [])
-                    if item.get("asset_type") == "survey"
-                ]
+                forms = []
+                for item in data.get("results", []):
+                    if item.get("asset_type") == "survey":
+                        sub_count = (
+                            item.get("deployment__submission_count")
+                            if item.get("deployment__submission_count") is not None
+                            else item.get(
+                                "deployment_submission_count",
+                                item.get("submissions_count", 0),
+                            )
+                        )
+                        owner = item.get("owner__username")
+                        if not owner and isinstance(item.get("owner"), dict):
+                            owner = item.get("owner", {}).get("username", "")
+                        elif not owner:
+                            owner = credential.username
+
+                        forms.append(
+                            {
+                                "uid": item["uid"],
+                                "name": item.get("name") or "Sans titre",
+                                "asset_type": item["asset_type"],
+                                "owner_username": str(owner or ""),
+                                "submissions_count": int(sub_count or 0),
+                                "date_modified": item.get("date_modified")
+                                or item.get("date_created"),
+                                "has_deployment": bool(
+                                    item.get(
+                                        "has_deployment",
+                                        item.get("deployment_status") == "deployed"
+                                        if item.get("deployment_status")
+                                        else True,
+                                    )
+                                ),
+                            }
+                        )
+                return forms
         except httpx.HTTPError as e:
             raise KoboConnectionError(detail=str(e))
 

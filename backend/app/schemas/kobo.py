@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -26,3 +27,6 @@ class KoboFormRead(BaseModel):
     name: str
     asset_type: str
     owner_username: str
+    submissions_count: int = 0
+    date_modified: Optional[str] = None
+    has_deployment: bool = True

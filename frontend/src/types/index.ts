@@ -11,6 +11,9 @@ export interface KoboForm {
   name: string;
   asset_type: string;
   owner_username: string;
+  submissions_count?: number;
+  date_modified?: string;
+  has_deployment?: boolean;
 }
 
 export interface ExportResult {
